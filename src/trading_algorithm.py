@@ -10,6 +10,7 @@ from drawdown_manager import DrawdownManager
 from portfolio_risk_manager import PortfolioRiskManager
 from volume_analyzer import VolumeAnalyzer
 from market_regime import MarketRegimeDetector
+from options_flow_analyzer import OptionsFlowAnalyzer
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -22,45 +23,25 @@ class TradingAlgorithm:
     - Volume Analysis: Confirms price movements with trading volume strength
     """
     
-    def __init__(self, portfolio_value: float = 100000.0):
+    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
         self.risk_manager = RiskManager(portfolio_value)
         self.drawdown_manager = DrawdownManager(portfolio_value)
         self.portfolio_risk_manager = PortfolioRiskManager(portfolio_value)
-        self.unusual_whales_base_url = "https://api.unusualwhales.com/v2"
+        self.options_analyzer = OptionsFlowAnalyzer(unusual_whales_key) if unusual_whales_key else None
         self.technical_weight = 0.5
         self.options_weight = 0.3
         self.prediction_weight = 0.2
         self.current_portfolio_value = portfolio_value
         
     def _get_options_flow(self):
-        """Fetches options flow data from Unusual Whales API.
-        
-        Returns:
-            list: Options trades with premium values and trade types.
-            Empty list if API call fails or no data available.
-        """
-        headers = {"Authorization": f"Bearer {UNUSUAL_WHALES_API_KEY}"}
-        endpoint = f"{self.unusual_whales_base_url}/flow"
-        params = {
-            "ticker": SYMBOL,
-            "limit": 100,
-            "timeframe": "1d"
-        }
-        
+        """Fetches options flow data from Unusual Whales API."""
+        if not self.options_analyzer:
+            return None
         try:
-            response = requests.get(endpoint, headers=headers, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            return data.get('data', [])
-        except requests.exceptions.Timeout:
-            print("Timeout while fetching options flow data")
-            return []
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching options flow data: {e}")
-            return []
+            return self.options_analyzer.fetch_options_flow('NVDA')
         except Exception as e:
             print(f"Error fetching options flow data: {e}")
             return None
@@ -283,65 +264,30 @@ class TradingAlgorithm:
         }
         
     def _analyze_options_flow(self):
-        """Analyzes options flow data to gauge institutional sentiment.
-        
-        Analyzes two key metrics:
-        1. Call/Put Ratio: Volume-based sentiment indicator
-           - Ratio > 0.6: Bullish sentiment (more calls than puts)
-           - Ratio < 0.4: Bearish sentiment (more puts than calls)
-           
-        2. Premium Analysis: Dollar-weighted sentiment
-           - Premium Ratio > 0.6: Strong bullish conviction
-           - Premium Ratio < 0.4: Strong bearish conviction
-        
-        Returns:
-            dict: Contains signal type, confidence score, and detailed reasons
-        """
-        flow_data = self._get_options_flow()
-        if not flow_data:
+        """Analyzes options flow data to gauge institutional sentiment."""
+        flow = self._get_options_flow()
+        if not flow:
             return {'signal': 'NEUTRAL', 'confidence': 50, 'reasons': ['No options flow data available']}
             
-        # Analyze call/put ratio and premium values
-        calls = [trade for trade in flow_data if trade['type'] == 'call']
-        puts = [trade for trade in flow_data if trade['type'] == 'put']
-        
-        call_premium = sum(trade.get('premium', 0) for trade in calls)
-        put_premium = sum(trade.get('premium', 0) for trade in puts)
-        
+        analysis = self.options_analyzer.analyze_flow(flow)
         signals = []
-        confidence = 50  # Start neutral
         
-        # Analyze call/put ratio
-        total_contracts = len(calls) + len(puts)
-        if total_contracts > 0:
-            call_ratio = len(calls) / total_contracts
-            if call_ratio > 0.6:
-                confidence += 20
-                signals.append('Bullish: High call option volume indicating institutional buying')
-            elif call_ratio < 0.4:
-                confidence -= 20
-                signals.append('Bearish: High put option volume indicating institutional hedging')
-            else:
-                signals.append('Neutral: Balanced call/put ratio suggesting mixed sentiment')
-                
-        # Analyze premium ratio
-        total_premium = call_premium + put_premium
-        if total_premium > 0:
-            premium_ratio = call_premium / total_premium
-            if premium_ratio > 0.6:
-                confidence += 20
-                signals.append('Bullish: Large capital flow into call options')
-            elif premium_ratio < 0.4:
-                confidence -= 20
-                signals.append('Bearish: Large capital flow into put options')
-            else:
-                signals.append('Neutral: Balanced premium distribution between calls and puts')
-                
-        signal = 'NEUTRAL'
-        if confidence >= 70:
+        if analysis['composite_score'] > 0.3:
             signal = 'BUY'
-        elif confidence <= 30:
+            confidence = 50 + (analysis['composite_score'] * 50)
+            signals.append(f"Bullish: Strong institutional buying (score: {analysis['composite_score']:.2f})")
+            if analysis['unusual_activity_score'] > 0.5:
+                signals.append("Bullish: Significant unusual call activity detected")
+        elif analysis['composite_score'] < -0.3:
             signal = 'SELL'
+            confidence = 50 - (analysis['composite_score'] * 50)
+            signals.append(f"Bearish: Strong institutional selling (score: {analysis['composite_score']:.2f})")
+            if analysis['unusual_activity_score'] > 0.5:
+                signals.append("Bearish: Significant unusual put activity detected")
+        else:
+            signal = 'NEUTRAL'
+            confidence = 50
+            signals.append(f"Neutral: Mixed institutional sentiment (score: {analysis['composite_score']:.2f})")
             
         return {
             'signal': signal,
