@@ -9,6 +9,7 @@ from risk_manager import RiskManager
 from drawdown_manager import DrawdownManager
 from portfolio_risk_manager import PortfolioRiskManager
 from volume_analyzer import VolumeAnalyzer
+from market_regime import MarketRegimeDetector
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -159,7 +160,12 @@ class TradingAlgorithm:
         volume_signals = volume_analyzer.get_entry_exit_signals(current_price)
         volume_trend = volume_analyzer.analyze_volume_trend()
         
-        # Incorporate volume analysis into signals
+        # Add market regime detection
+        regime_detector = MarketRegimeDetector(data)
+        regime_metrics = regime_detector.detect_regime()
+        regime_params = regime_detector.get_regime_parameters()
+        
+        # Incorporate volume analysis and market regime into signals
         signals = []
         confidence_factors = []
         
@@ -175,6 +181,20 @@ class TradingAlgorithm:
             signals.append("Bearish: Negative volume momentum with price decrease")
             
         confidence_factors.append(volume_score * 0.3)
+        
+        # Market Regime Analysis (20% weight)
+        regime_score = 0
+        if regime_metrics.regime.value == 'trending_up':
+            regime_score = 100
+            signals.append(f"Bullish: Strong upward trend detected (confidence: {regime_metrics.confidence:.2f})")
+        elif regime_metrics.regime.value == 'trending_down':
+            regime_score = 0
+            signals.append(f"Bearish: Strong downward trend detected (confidence: {regime_metrics.confidence:.2f})")
+        else:
+            regime_score = 50
+            signals.append(f"Neutral: {regime_metrics.regime.value} market detected")
+            
+        confidence_factors.append(regime_score * 0.2)
             
         latest = data.iloc[-1]
         prev = data.iloc[-2]  # Previous day's data

@@ -4,11 +4,11 @@
 - [x] Implement dynamic position sizing based on volatility
 - [x] Add trailing stop-loss optimization
 - [x] Create profit target calculations based on volatility bands
-- [ ] Implement maximum drawdown protection
-- [ ] Add portfolio-level risk controls
+- [x] Implement maximum drawdown protection
+- [x] Add portfolio-level risk controls
 
 ## Signal Quality Improvements [HIGH PRIORITY]
-- [ ] Add volume profile analysis for better entry/exit points
+- [x] Add volume profile analysis for better entry/exit points
 - [ ] Implement market regime detection (trending/ranging)
 - [ ] Add institutional order flow analysis using options data
 - [ ] Enhance sentiment analysis with news impact scoring
