@@ -27,14 +27,23 @@ def generate_analysis_report():
     data = collector.collect_all_data()
     features = predictor._extract_features(data['yfinance'])
     
-    # Train the model
+    # Train the model with cross-validation
     X, y = predictor._create_sequences(features)
     split_idx = int(len(X) * 0.8)  # 80% training data
     X_train, X_test = X[:split_idx], X[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
     
-    predictor.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
-    predictor.train(X_train, y_train, epochs=50)
+    # Perform cross-validation with hyperparameter tuning
+    param_grid = {
+        'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
+        'dropout_rate': [0.2, 0.3, 0.4],
+        'learning_rate': [0.001, 0.0005, 0.0001],
+        'dense_units': [16, 32, 64]
+    }
+    
+    best_params, cv_results = predictor.grid_search_cv(X_train, y_train, param_grid, n_splits=5)
+    predictor.model = predictor.build_model(input_shape=(X_train.shape[1], X_train.shape[2]), params=best_params)
+    history = predictor.train(X_train, y_train, epochs=50)
     
     # Generate predictions
     next_day_price = predictor.predict_next_day(features)
@@ -92,7 +101,20 @@ Confidence Ranges:
     for confidence, (lower, upper) in ranges['confidence_ranges'].items():
         report += f"\n{confidence} Range: ${lower:.2f} - ${upper:.2f}"
     
+    # Calculate cross-validation metrics summary
+    cv_mae_mean = np.mean([result['mean_mae'] for result in predictor.cv_results])
+    cv_mae_std = np.mean([result['std_mae'] for result in predictor.cv_results])
+    
     report += f"""
+
+Model Performance (Cross-Validation):
+{'-' * 30}
+Mean Absolute Error: {cv_mae_mean:.4f} ± {cv_mae_std:.4f}
+Best Parameters:
+- LSTM Units: {best_params['lstm_units']}
+- Dropout Rate: {best_params['dropout_rate']}
+- Learning Rate: {best_params['learning_rate']}
+- Dense Units: {best_params['dense_units']}
 
 Trading Signals:
 {'-' * 30}
