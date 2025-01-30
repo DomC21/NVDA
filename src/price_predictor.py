@@ -50,11 +50,21 @@ class PricePredictor:
         scaled_features = self.scaler.fit_transform(features)
         X, y = [], []
         
-        for i in range(len(scaled_features) - self.sequence_length):
-            X.append(scaled_features[i:(i + self.sequence_length)])
-            y.append(scaled_features[i + self.sequence_length, 0])
+        for i in range(len(scaled_features) - self.sequence_length - 1):
+            sequence = scaled_features[i:(i + self.sequence_length)]
+            target = scaled_features[i + self.sequence_length, 0]
             
-        return np.array(X), np.array(y)
+            if len(sequence) == self.sequence_length:
+                X.append(sequence)
+                y.append(target)
+        
+        X = np.array(X)
+        y = np.array(y)
+        
+        if len(X) == 0 or len(y) == 0:
+            raise ValueError("Not enough data to create sequences")
+            
+        return X, y
         
     def build_model(self, input_shape):
         self.model = Sequential([
@@ -96,4 +106,75 @@ class PricePredictor:
                 '70%': (prediction * (1 - volatility * 0.7), prediction * (1 + volatility * 0.7)),
                 '50%': (prediction * (1 - volatility * 0.5), prediction * (1 + volatility * 0.5))
             }
+        }
+        
+    def backtest(self, test_size=0.2):
+        raw_data = self.collector.collect_all_data()
+        df = raw_data['yfinance']
+        features = self._extract_features(df)
+        
+        # Create sequences first
+        X, y = self._create_sequences(features)
+        
+        # Then split into train/test
+        split_idx = int(len(X) * (1 - test_size))
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        print(f"\nDataset sizes:")
+        print(f"Training samples: {len(X_train)}")
+        print(f"Testing samples: {len(X_test)}")
+        
+        self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
+        history = self.train(X_train, y_train, epochs=50)
+        
+        predictions = []
+        actuals = []
+        
+        print(f"\nTest set size: {len(X_test)}")
+        
+        for i in range(len(X_test)):
+            try:
+                sequence = X_test[i:i+1]
+                pred = self.model.predict(sequence, verbose=0)[0][0]
+                actual = y_test[i]
+                
+                # Create dummy arrays with same shape as training features
+                dummy_pred = np.zeros((1, features.shape[1]))
+                dummy_pred[0, 0] = pred
+                pred_price = self.scaler.inverse_transform(dummy_pred)[0][0]
+                
+                dummy_actual = np.zeros((1, features.shape[1]))
+                dummy_actual[0, 0] = actual
+                actual_price = self.scaler.inverse_transform(dummy_actual)[0][0]
+                
+                print(f"Prediction {i}: Actual=${actual_price:.2f}, Predicted=${pred_price:.2f}")
+                
+                if not (np.isnan(pred_price) or np.isnan(actual_price)):
+                    predictions.append(pred_price)
+                    actuals.append(actual_price)
+                else:
+                    print(f"Warning: NaN values detected for prediction {i}")
+            except Exception as e:
+                print(f"Error processing prediction {i}: {str(e)}")
+                continue
+                
+        print(f"\nValid predictions: {len(predictions)}/{len(X_test)}")
+        
+        if len(predictions) > 0 and len(actuals) > 0:
+            predictions = np.array(predictions)
+            actuals = np.array(actuals)
+            mae = np.mean(np.abs(predictions - actuals))
+            mape = np.mean(np.abs((actuals - predictions) / actuals)) * 100
+            rmse = np.sqrt(np.mean((predictions - actuals)**2))
+        else:
+            mae = mape = rmse = float('nan')
+        
+        return {
+            'mae': mae,
+            'mape': mape,
+            'rmse': rmse,
+            'predictions': predictions,
+            'actuals': actuals,
+            'training_history': history.history
         }
