@@ -22,10 +22,12 @@ class TradingAlgorithm:
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
         self.risk_manager = RiskManager(portfolio_value)
+        self.drawdown_manager = DrawdownManager(portfolio_value)
         self.unusual_whales_base_url = "https://api.unusualwhales.com/v2"
         self.technical_weight = 0.5
         self.options_weight = 0.3
         self.prediction_weight = 0.2
+        self.current_portfolio_value = portfolio_value
         
     def _get_options_flow(self):
         """Fetches options flow data from Unusual Whales API.
@@ -95,7 +97,16 @@ class TradingAlgorithm:
             combined_signals['signal'] = 'NEUTRAL'
             combined_signals['confidence'] *= 0.5
             combined_signals['technical_reasons'].append(f"Risk Management Override: {validation_message}")
-        
+            
+        # Add drawdown protection
+        is_valid_dd, dd_message, dd_metrics = self.drawdown_manager.validate_trade(self.current_portfolio_value)
+        if not is_valid_dd:
+            combined_signals['signal'] = 'NEUTRAL'
+            combined_signals['confidence'] *= 0.3
+            combined_signals['technical_reasons'].append(f"Drawdown Protection: {dd_message}")
+            position_metrics['position_value'] *= dd_metrics['position_adjustment']
+            position_metrics['position_size_pct'] *= dd_metrics['position_adjustment']
+            
         return {
             'technical_signals': technical_signals,
             'options_signals': options_signals,

@@ -1,9 +1,9 @@
 # Profitability Improvements Todo List
 
 ## Risk Management Enhancements [HIGH PRIORITY]
-- [ ] Implement dynamic position sizing based on volatility
-- [ ] Add trailing stop-loss optimization
-- [ ] Create profit target calculations based on volatility bands
+- [x] Implement dynamic position sizing based on volatility
+- [x] Add trailing stop-loss optimization
+- [x] Create profit target calculations based on volatility bands
 - [ ] Implement maximum drawdown protection
 - [ ] Add portfolio-level risk controls
 
