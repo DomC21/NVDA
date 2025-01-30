@@ -11,6 +11,9 @@ class StockVisualizer:
     def plot_technical_analysis(self, save_path='nvda_technical_analysis.png'):
         """Create a comprehensive technical analysis plot for NVDA"""
         data = self.analyzer.data
+        if data is None or data.empty:
+            print("No data available for plotting")
+            return save_path
         
         # Create figure and subplots
         fig = plt.figure(figsize=(15, 12))
@@ -55,19 +58,23 @@ class StockVisualizer:
         
     def generate_analysis_report(self):
         """Generate a comprehensive analysis report for NVDA"""
-        stats = self.analyzer.get_summary_statistics()
-        signals = self.analyzer.get_current_signals()
-        
-        report = f"""NVDA Stock Analysis Report
+        try:
+            stats = self.analyzer.get_summary_statistics()
+            if not isinstance(stats, dict):
+                stats = {}
+            
+            signals = self.analyzer.get_current_signals() or []
+            
+            report = f"""NVDA Stock Analysis Report
 
 Current Statistics:
 ------------------
-Current Price: ${stats.get('current_price', 0):.2f}
-Daily Return: {stats.get('daily_return', 0):.2f}%
-Volatility (Daily): {stats.get('volatility', 0):.2f}%
-Average Volume: {stats.get('avg_volume', 0):,.0f}
-RSI: {stats.get('rsi', 0):.2f}
-MACD: {stats.get('macd', 0):.2f}
+Current Price: ${float(stats.get('current_price', 0)):.2f}
+Daily Return: {float(stats.get('daily_return', 0)):.2f}%
+Volatility (Daily): {float(stats.get('volatility', 0)):.2f}%
+Average Volume: {int(stats.get('avg_volume', 0)):,.0f}
+RSI: {float(stats.get('rsi', 0)):.2f}
+MACD: {float(stats.get('macd', 0)):.2f}
 
 Technical Signals:
 -----------------

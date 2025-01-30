@@ -296,28 +296,43 @@ class PricePredictor:
         }
         
     def predict_next_day(self, features):
-        if any(model is None for model in [self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
-            raise ValueError("Models not built. Call train() first.")
+        try:
+            if any(model is None for model in [self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
+                raise ValueError("Models not built. Call train() first.")
             
-        last_sequence = features[-self.sequence_length:]
-        scaled_sequence = self.scaler.transform(last_sequence)
-        sequence_array = np.array([scaled_sequence])
-        flat_sequence = self.flatten_sequences(sequence_array)
-        
-        # Get predictions from all models
-        lstm_pred = self.lstm_model.predict(sequence_array, verbose=0)
-        gru_pred = self.gru_model.predict(sequence_array, verbose=0)
-        xgb_pred = self.xgb_model.predict(flat_sequence).reshape(-1, 1)
-        gb_pred = self.gb_model.predict(flat_sequence).reshape(-1, 1)
+            last_sequence = features[-self.sequence_length:]
+            scaled_sequence = self.scaler.transform(last_sequence)
+            sequence_array = np.array([scaled_sequence])
+            flat_sequence = self.flatten_sequences(sequence_array)
+            
+            # Get predictions from all models
+            predictions = {}
+            
+            if self.lstm_model is not None:
+                predictions['lstm'] = self.lstm_model.predict(sequence_array, verbose=0)
+            else:
+                raise ValueError("LSTM model not initialized")
+                
+            if self.gru_model is not None:
+                predictions['gru'] = self.gru_model.predict(sequence_array, verbose=0)
+            else:
+                raise ValueError("GRU model not initialized")
+                
+            if self.xgb_model is not None:
+                predictions['xgb'] = self.xgb_model.predict(flat_sequence).reshape(-1, 1)
+            else:
+                raise ValueError("XGBoost model not initialized")
+                
+            if self.gb_model is not None:
+                predictions['gb'] = self.gb_model.predict(flat_sequence).reshape(-1, 1)
+            else:
+                raise ValueError("Gradient Boosting model not initialized")
         
         # Ensemble prediction (weighted average)
-        weights = [0.3, 0.3, 0.2, 0.2]  # LSTM, GRU, XGBoost, GradientBoosting
-        ensemble_pred = (
-            weights[0] * lstm_pred +
-            weights[1] * gru_pred +
-            weights[2] * xgb_pred +
-            weights[3] * gb_pred
-        )
+            weights = {'lstm': 0.3, 'gru': 0.3, 'xgb': 0.2, 'gb': 0.2}
+            ensemble_pred = sum(weights[k] * v for k, v in predictions.items())
+        except Exception as e:
+            raise ValueError(f"Error during prediction: {str(e)}")
         
         dummy = np.zeros((ensemble_pred.shape[0], features.shape[1]))
         dummy[:, 0] = ensemble_pred[:, 0]
@@ -335,39 +350,43 @@ class PricePredictor:
         }
         
     def backtest(self, test_size=0.2, n_splits=5):
-        raw_data = self.collector.collect_all_data()
-        if not raw_data or 'yfinance' not in raw_data:
-            raise ValueError("Failed to collect YFinance data")
+        try:
+            raw_data = self.collector.collect_all_data()
+            if not raw_data or 'yfinance' not in raw_data:
+                raise ValueError("Failed to collect YFinance data")
+            
+            df = raw_data['yfinance']
+            features = self._extract_features(df)
+            X, y = self._create_sequences(features)
+            
+            # Split into train/test
+            split_idx = int(len(X) * (1 - test_size))
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+            
+            # Train all models
+            history = self.train(X_train, y_train, epochs=50)
+            
+            # Prepare test data for tree models
+            X_test_flat = self.flatten_sequences(X_test)
+            
+            # Get predictions from all models
+            predictions = {}
+            
+            if self.lstm_model is not None:
+                predictions['lstm'] = self.lstm_model.predict(X_test, verbose=0)
+            if self.gru_model is not None:
+                predictions['gru'] = self.gru_model.predict(X_test, verbose=0)
+            if self.xgb_model is not None:
+                predictions['xgb'] = self.xgb_model.predict(X_test_flat).reshape(-1, 1)
+            if self.gb_model is not None:
+                predictions['gb'] = self.gb_model.predict(X_test_flat).reshape(-1, 1)
         
-        df = raw_data['yfinance']
-        features = self._extract_features(df)
-        X, y = self._create_sequences(features)
-        
-        # Split into train/test
-        split_idx = int(len(X) * (1 - test_size))
-        X_train, X_test = X[:split_idx], X[split_idx:]
-        y_train, y_test = y[:split_idx], y[split_idx:]
-        
-        # Train all models
-        history = self.train(X_train, y_train, epochs=50)
-        
-        # Prepare test data for tree models
-        X_test_flat = self.flatten_sequences(X_test)
-        
-        # Get predictions from all models
-        lstm_pred = self.lstm_model.predict(X_test, verbose=0)
-        gru_pred = self.gru_model.predict(X_test, verbose=0)
-        xgb_pred = self.xgb_model.predict(X_test_flat).reshape(-1, 1)
-        gb_pred = self.gb_model.predict(X_test_flat).reshape(-1, 1)
-        
-        # Calculate ensemble prediction
-        weights = [0.3, 0.3, 0.2, 0.2]  # LSTM, GRU, XGBoost, GradientBoosting
-        ensemble_pred = (
-            weights[0] * lstm_pred +
-            weights[1] * gru_pred +
-            weights[2] * xgb_pred +
-            weights[3] * gb_pred
-        )
+            # Calculate ensemble prediction
+            weights = {'lstm': 0.3, 'gru': 0.3, 'xgb': 0.2, 'gb': 0.2}
+            ensemble_pred = sum(weights[k] * v for k, v in predictions.items())
+        except Exception as e:
+            raise ValueError(f"Error during backtesting: {str(e)}")
         
         # Calculate metrics for each model
         def calculate_metrics(predictions, actuals):
