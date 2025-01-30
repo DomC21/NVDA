@@ -45,6 +45,11 @@ class PricePredictor:
         features['Daily_Return'] = df['Close'].pct_change()
         features['Volatility'] = features['Daily_Return'].rolling(window=20).std()
         
+        # Sentiment features
+        features['News_Sentiment'] = df['News_Sentiment'].fillna(method='ffill').fillna(0.5)  # Forward fill and default to neutral
+        features['Sentiment_MA5'] = features['News_Sentiment'].rolling(window=5).mean().fillna(method='ffill')
+        features['Sentiment_MA10'] = features['News_Sentiment'].rolling(window=10).mean().fillna(method='ffill')
+        
         features = features.dropna()
         return features
         

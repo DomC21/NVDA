@@ -2,6 +2,9 @@ import yfinance as yf
 from polygon import RESTClient
 from alpha_vantage.timeseries import TimeSeries
 from config import POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, SYMBOL
+import requests
+from datetime import datetime, timedelta
+import json
 
 class DataFetcher:
     def __init__(self):
@@ -10,6 +13,7 @@ class DataFetcher:
         self.yf_ticker = yf.Ticker(SYMBOL)
         self.spy_ticker = yf.Ticker("SPY")
         self.soxx_ticker = yf.Ticker("SOXX")
+        self.sentiment_cache = {}
 
     def get_polygon_data(self):
         from datetime import datetime, timedelta
@@ -42,4 +46,38 @@ class DataFetcher:
         nvda_data['Market_RS'] = (nvda_returns + 1).cumprod() / (spy_returns + 1).cumprod()
         nvda_data['Sector_RS'] = (nvda_returns + 1).cumprod() / (soxx_returns + 1).cumprod()
         
+        # Add sentiment data
+        sentiment_data = self._get_polygon_news_sentiment()
+        nvda_data['News_Sentiment'] = pd.Series(sentiment_data)
+        
         return nvda_data
+        
+    def _get_polygon_news_sentiment(self):
+        sentiment_scores = {}
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=730)
+        
+        try:
+            news = self.polygon_client.list_ticker_news(
+                ticker=SYMBOL,
+                published_utc_gte=start_date.strftime("%Y-%m-%d"),
+                published_utc_lte=end_date.strftime("%Y-%m-%d"),
+                limit=1000
+            )
+            
+            for article in news:
+                date = datetime.strptime(article.published_utc[:10], "%Y-%m-%d")
+                sentiment = article.sentiment_score if hasattr(article, 'sentiment_score') else 0.5
+                
+                if date not in sentiment_scores:
+                    sentiment_scores[date] = []
+                sentiment_scores[date].append(sentiment)
+            
+            # Average sentiment scores for each day
+            daily_sentiment = {date: sum(scores)/len(scores) for date, scores in sentiment_scores.items()}
+            
+            return daily_sentiment
+            
+        except Exception as e:
+            print(f"Error fetching news sentiment: {e}")
+            return {}
