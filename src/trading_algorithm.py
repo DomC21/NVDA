@@ -23,6 +23,7 @@ class TradingAlgorithm:
         self.predictor = PricePredictor()
         self.risk_manager = RiskManager(portfolio_value)
         self.drawdown_manager = DrawdownManager(portfolio_value)
+        self.portfolio_risk_manager = PortfolioRiskManager(portfolio_value)
         self.unusual_whales_base_url = "https://api.unusualwhales.com/v2"
         self.technical_weight = 0.5
         self.options_weight = 0.3
@@ -106,6 +107,24 @@ class TradingAlgorithm:
             combined_signals['technical_reasons'].append(f"Drawdown Protection: {dd_message}")
             position_metrics['position_value'] *= dd_metrics['position_adjustment']
             position_metrics['position_size_pct'] *= dd_metrics['position_adjustment']
+            
+        # Add portfolio-level risk control
+        is_valid_portfolio, portfolio_message, portfolio_metrics = self.portfolio_risk_manager.validate_new_position(
+            symbol='NVDA',
+            value=position_metrics['position_value'],
+            sector='Technology',
+            beta=self.analyzer.get_beta(),
+            correlation_data=self.analyzer.get_correlations()
+        )
+        
+        if not is_valid_portfolio:
+            combined_signals['signal'] = 'NEUTRAL'
+            combined_signals['confidence'] *= 0.2
+            combined_signals['technical_reasons'].append(f"Portfolio Risk Control: {portfolio_message}")
+            position_metrics['position_value'] *= self.portfolio_risk_manager.get_position_size_adjustment(
+                portfolio_metrics.get('portfolio_risk', 0.0)
+            )
+            position_metrics['position_size_pct'] = position_metrics['position_value'] / self.current_portfolio_value
             
         return {
             'technical_signals': technical_signals,
