@@ -1,4 +1,5 @@
 import yfinance as yf
+import pandas as pd
 from polygon import RESTClient
 from alpha_vantage.timeseries import TimeSeries
 from config import POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, SYMBOL
@@ -48,7 +49,9 @@ class DataFetcher:
         
         # Add sentiment data
         sentiment_data = self._get_polygon_news_sentiment()
-        nvda_data['News_Sentiment'] = pd.Series(sentiment_data)
+        sentiment_series = pd.Series(sentiment_data)
+        sentiment_series.index = pd.to_datetime(sentiment_series.index)
+        nvda_data['News_Sentiment'] = sentiment_series.reindex(nvda_data.index)
         
         return nvda_data
         
