@@ -5,6 +5,9 @@ from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+import itertools
 import os
 from data_collector import DataCollector
 
@@ -14,6 +17,8 @@ class PricePredictor:
         self.model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.collector = DataCollector()
+        self.best_params = None
+        self.cv_results = None
         
     def prepare_data(self):
         raw_data = self.collector.collect_all_data()
@@ -85,26 +90,96 @@ class PricePredictor:
             
         return X, y
         
-    def build_model(self, input_shape):
-        self.model = Sequential([
-            LSTM(128, return_sequences=True, input_shape=input_shape),
-            Dropout(0.3),
-            LSTM(64, return_sequences=True),
-            Dropout(0.3),
-            LSTM(32, return_sequences=False),
-            Dropout(0.3),
-            Dense(16, activation='relu'),
+    def build_model(self, input_shape, params=None):
+        if params is None:
+            params = {
+                'lstm_units': [128, 64, 32],
+                'dropout_rate': 0.3,
+                'learning_rate': 0.001,
+                'dense_units': 16
+            }
+        
+        model = Sequential([
+            LSTM(params['lstm_units'][0], return_sequences=True, input_shape=input_shape),
+            Dropout(params['dropout_rate']),
+            LSTM(params['lstm_units'][1], return_sequences=True),
+            Dropout(params['dropout_rate']),
+            LSTM(params['lstm_units'][2], return_sequences=False),
+            Dropout(params['dropout_rate']),
+            Dense(params['dense_units'], activation='relu'),
             Dense(1)
         ])
         
-        self.model.compile(optimizer=Adam(learning_rate=0.001),
-                         loss='huber',
-                         metrics=['mae'])
+        model.compile(optimizer=Adam(learning_rate=params['learning_rate']),
+                    loss='huber',
+                    metrics=['mae'])
+        
+        return model
+        
+    def grid_search_cv(self, X, y, param_grid, n_splits=5):
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+        best_score = float('inf')
+        best_params = None
+        cv_results = []
+        
+        param_combinations = [dict(zip(param_grid.keys(), v)) 
+                            for v in itertools.product(*param_grid.values())]
+        
+        for params in param_combinations:
+            fold_scores = []
+            for train_idx, val_idx in tscv.split(X):
+                X_train, X_val = X[train_idx], X[val_idx]
+                y_train, y_val = y[train_idx], y[val_idx]
+                
+                model = self.build_model(input_shape=(X.shape[1], X.shape[2]), params=params)
+                
+                callbacks = [
+                    EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+                ]
+                
+                history = model.fit(
+                    X_train, y_train,
+                    epochs=50,
+                    batch_size=32,
+                    validation_data=(X_val, y_val),
+                    callbacks=callbacks,
+                    verbose=0
+                )
+                
+                val_pred = model.predict(X_val, verbose=0)
+                mae = mean_absolute_error(y_val, val_pred)
+                fold_scores.append(mae)
+            
+            avg_score = np.mean(fold_scores)
+            cv_results.append({
+                'params': params,
+                'mean_mae': avg_score,
+                'std_mae': np.std(fold_scores)
+            })
+            
+            if avg_score < best_score:
+                best_score = avg_score
+                best_params = params
+        
+        self.best_params = best_params
+        self.cv_results = cv_results
+        return best_params, cv_results
                          
     def train(self, X_train, y_train, epochs=50, batch_size=32, validation_split=0.1):
-        if self.model is None:
-            raise ValueError("Model not built. Call build_model() first.")
-            
+        param_grid = {
+            'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
+            'dropout_rate': [0.2, 0.3, 0.4],
+            'learning_rate': [0.001, 0.0005, 0.0001],
+            'dense_units': [16, 32, 64]
+        }
+        
+        best_params, cv_results = self.grid_search_cv(X_train, y_train, param_grid)
+        
+        self.model = self.build_model(
+            input_shape=(X_train.shape[1], X_train.shape[2]),
+            params=best_params
+        )
+        
         callbacks = [
             EarlyStopping(
                 monitor='val_loss',
@@ -149,7 +224,7 @@ class PricePredictor:
             }
         }
         
-    def backtest(self, test_size=0.2):
+    def backtest(self, test_size=0.2, n_splits=5):
         raw_data = self.collector.collect_all_data()
         if not raw_data or 'yfinance' not in raw_data:
             raise ValueError("Failed to collect YFinance data")
@@ -163,7 +238,21 @@ class PricePredictor:
         X_train, X_test = X[:split_idx], X[split_idx:]
         y_train, y_test = y[:split_idx], y[split_idx:]
         
-        self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
+        # Perform cross-validation with hyperparameter tuning
+        param_grid = {
+            'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
+            'dropout_rate': [0.2, 0.3, 0.4],
+            'learning_rate': [0.001, 0.0005, 0.0001],
+            'dense_units': [16, 32, 64]
+        }
+        
+        best_params, cv_results = self.grid_search_cv(X_train, y_train, param_grid, n_splits=n_splits)
+        
+        # Train final model with best parameters
+        self.model = self.build_model(
+            input_shape=(X_train.shape[1], X_train.shape[2]),
+            params=best_params
+        )
         history = self.train(X_train, y_train, epochs=50)
         
         predictions = []
