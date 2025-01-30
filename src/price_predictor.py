@@ -82,7 +82,10 @@ class PricePredictor:
         last_sequence = features[-self.sequence_length:]
         scaled_sequence = self.scaler.transform(last_sequence)
         prediction = self.model.predict(np.array([scaled_sequence]))
-        return self.scaler.inverse_transform(prediction)[0][0]
+        # Create a dummy array with same shape as input features for inverse transform
+        dummy = np.zeros((prediction.shape[0], features.shape[1]))
+        dummy[:, 0] = prediction[:, 0]  # Set the predicted value in the first column
+        return self.scaler.inverse_transform(dummy)[0][0]
         
     def generate_price_ranges(self, current_price, prediction):
         volatility = 0.02  # 2% assumed volatility
