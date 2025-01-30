@@ -26,12 +26,24 @@ class PricePredictor:
         
     def _extract_features(self, df):
         features = pd.DataFrame()
+        
+        # Price and volume features
         features['Close'] = df['Close']
         features['Volume'] = df['Volume']
         features['RSI'] = self._calculate_rsi(df['Close'])
         features['SMA_20'] = df['Close'].rolling(window=20).mean()
         features['SMA_50'] = df['Close'].rolling(window=50).mean()
         features['MACD'] = self._calculate_macd(df['Close'])
+        
+        # Market context features
+        features['SPY_Correlation'] = df['SPY_Correlation']
+        features['SOXX_Correlation'] = df['SOXX_Correlation']
+        features['Market_RS'] = df['Market_RS']
+        features['Sector_RS'] = df['Sector_RS']
+        
+        # Volatility features
+        features['Daily_Return'] = df['Close'].pct_change()
+        features['Volatility'] = features['Daily_Return'].rolling(window=20).std()
         
         features = features.dropna()
         return features
