@@ -5,6 +5,10 @@ from datetime import datetime, timedelta
 from analysis import StockAnalyzer
 from price_predictor import PricePredictor
 from config import UNUSUAL_WHALES_API_KEY, SYMBOL
+from risk_manager import RiskManager
+from drawdown_manager import DrawdownManager
+from portfolio_risk_manager import PortfolioRiskManager
+from volume_analyzer import VolumeAnalyzer
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -143,20 +147,34 @@ class TradingAlgorithm:
         }
         
     def _generate_technical_signals(self):
-        """Analyzes technical indicators to generate trading signals.
-        
-        Analyzes multiple technical indicators with weighted importance:
-        - Trend Analysis (40%): Moving averages for trend direction
-        - RSI Analysis (20%): Momentum and overbought/oversold conditions
-        - MACD Analysis (20%): Trend strength and momentum shifts
-        - Volume Analysis (20%): Price movement confirmation
-        
-        Returns:
-            dict: Contains signal type, confidence score, and detailed reasons
-        """
+        """Analyzes technical indicators to generate trading signals."""
         data = self.analyzer.data
         if data is None or len(data) < 50:
             return {'signal': 'NEUTRAL', 'confidence': 0, 'reasons': ['Insufficient data']}
+            
+        # Add volume profile analysis
+        volume_analyzer = VolumeAnalyzer(data)
+        volume_profile = volume_analyzer.calculate_volume_profile()
+        current_price = data['Close'].iloc[-1]
+        volume_signals = volume_analyzer.get_entry_exit_signals(current_price)
+        volume_trend = volume_analyzer.analyze_volume_trend()
+        
+        # Incorporate volume analysis into signals
+        signals = []
+        confidence_factors = []
+        
+        # Volume Profile Analysis (30% weight)
+        volume_score = 0
+        if volume_signals['long']['risk_reward_ratio'] > 2.0:
+            volume_score += 50
+            signals.append(f"Bullish: Strong risk/reward ratio ({volume_signals['long']['risk_reward_ratio']:.2f})")
+        if volume_trend['volume_momentum'] > 0:
+            volume_score += 50
+            signals.append("Bullish: Positive volume momentum with price increase")
+        elif volume_trend['volume_momentum'] < 0:
+            signals.append("Bearish: Negative volume momentum with price decrease")
+            
+        confidence_factors.append(volume_score * 0.3)
             
         latest = data.iloc[-1]
         prev = data.iloc[-2]  # Previous day's data
