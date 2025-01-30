@@ -68,16 +68,61 @@ A sophisticated trading algorithm focused on analyzing NVIDIA (NVDA) stock using
 ## Signal Generation System
 
 ### Weighted Scoring Components
-1. Technical Analysis (60% weight)
+1. Technical Analysis (50% weight)
    - Trend Analysis: 40%
    - RSI: 20%
    - MACD: 20%
    - Volume: 10%
    - Bollinger Bands: 10%
 
-2. Options Flow (40% weight)
+2. Options Flow (30% weight)
    - Call/Put Ratio: 50%
    - Premium Analysis: 50%
+
+3. Machine Learning Price Prediction (20% weight)
+   - LSTM Neural Network Model
+   - 60-day sequence analysis
+   - Multi-feature input:
+     - Historical prices
+     - Volume trends
+     - Technical indicators
+   - Confidence ranges:
+     - 90% prediction interval
+     - 70% prediction interval
+     - 50% prediction interval
+
+### Price Prediction Model
+
+The algorithm incorporates a deep learning LSTM (Long Short-Term Memory) neural network for price prediction with the following characteristics:
+
+1. Model Architecture
+   - Input: 60-day sequence of features
+   - 3-layer LSTM (128, 64, 32 neurons)
+   - Dropout layers (0.3) for regularization
+   - Dense output layer for price prediction
+
+2. Feature Engineering
+   - Close prices
+   - Trading volume
+   - RSI (Relative Strength Index)
+   - Moving averages (20-day, 50-day)
+   - MACD (Moving Average Convergence Divergence)
+
+3. Prediction Output
+   - Next-day price prediction
+   - Confidence intervals (90%, 70%, 50%)
+   - Price movement signals:
+     - Strong Buy: >2% predicted increase
+     - Buy: 1-2% predicted increase
+     - Neutral: -1% to 1% predicted change
+     - Sell: -1% to -2% predicted decrease
+     - Strong Sell: <-2% predicted decrease
+
+4. Model Performance Metrics
+   - Mean Absolute Error (MAE)
+   - Mean Absolute Percentage Error (MAPE)
+   - Root Mean Square Error (RMSE)
+   - Backtesting results on historical data
 
 ### Signal Confidence Levels
 - High (>70%): Strong conviction
