@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+import os
 from data_collector import DataCollector
 
 class PricePredictor:
@@ -68,33 +70,55 @@ class PricePredictor:
         
     def build_model(self, input_shape):
         self.model = Sequential([
-            LSTM(100, return_sequences=True, input_shape=input_shape),
-            Dropout(0.2),
-            LSTM(50, return_sequences=False),
-            Dropout(0.2),
+            LSTM(128, return_sequences=True, input_shape=input_shape),
+            Dropout(0.3),
+            LSTM(64, return_sequences=True),
+            Dropout(0.3),
+            LSTM(32, return_sequences=False),
+            Dropout(0.3),
+            Dense(16, activation='relu'),
             Dense(1)
         ])
         
         self.model.compile(optimizer=Adam(learning_rate=0.001),
-                         loss='mse',
+                         loss='huber',
                          metrics=['mae'])
                          
     def train(self, X_train, y_train, epochs=50, batch_size=32, validation_split=0.1):
+        if self.model is None:
+            raise ValueError("Model not built. Call build_model() first.")
+            
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=5,
+                restore_best_weights=True
+            ),
+            ModelCheckpoint(
+                filepath='best_model.h5',
+                monitor='val_loss',
+                save_best_only=True,
+                mode='min'
+            )
+        ]
+        
         return self.model.fit(
             X_train, y_train,
             epochs=epochs,
             batch_size=batch_size,
             validation_split=validation_split,
+            callbacks=callbacks,
             verbose=1
         )
         
     def predict_next_day(self, features):
+        if self.model is None:
+            raise ValueError("Model not built. Call build_model() first.")
         last_sequence = features[-self.sequence_length:]
         scaled_sequence = self.scaler.transform(last_sequence)
-        prediction = self.model.predict(np.array([scaled_sequence]))
-        # Create a dummy array with same shape as input features for inverse transform
+        prediction = self.model.predict(np.array([scaled_sequence]), verbose=0)
         dummy = np.zeros((prediction.shape[0], features.shape[1]))
-        dummy[:, 0] = prediction[:, 0]  # Set the predicted value in the first column
+        dummy[:, 0] = prediction[:, 0]
         return self.scaler.inverse_transform(dummy)[0][0]
         
     def generate_price_ranges(self, current_price, prediction):
@@ -109,12 +133,14 @@ class PricePredictor:
         }
         
     def backtest(self, test_size=0.2):
-        raw_data = self.collector.collect_all_data()
-        df = raw_data['yfinance']
-        features = self._extract_features(df)
-        
-        # Create sequences first
-        X, y = self._create_sequences(features)
+        try:
+            raw_data = self.collector.collect_all_data()
+            if not raw_data or 'yfinance' not in raw_data:
+                raise ValueError("Failed to collect YFinance data")
+            
+            df = raw_data['yfinance']
+            features = self._extract_features(df)
+            X, y = self._create_sequences(features)
         
         # Then split into train/test
         split_idx = int(len(X) * (1 - test_size))
