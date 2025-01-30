@@ -12,6 +12,7 @@ from volume_analyzer import VolumeAnalyzer
 from market_regime import MarketRegimeDetector
 from options_flow_analyzer import OptionsFlowAnalyzer
 from sentiment_analyzer import SentimentAnalyzer
+from dark_pool_analyzer import DarkPoolAnalyzer
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -24,7 +25,8 @@ class TradingAlgorithm:
     - Volume Analysis: Confirms price movements with trading volume strength
     """
     
-    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None, alpha_vantage_key: str = None):
+    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None, 
+             alpha_vantage_key: str = None, polygon_key: str = None):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
@@ -33,6 +35,7 @@ class TradingAlgorithm:
         self.portfolio_risk_manager = PortfolioRiskManager(portfolio_value)
         self.options_analyzer = OptionsFlowAnalyzer(unusual_whales_key) if unusual_whales_key else None
         self.sentiment_analyzer = SentimentAnalyzer(alpha_vantage_key) if alpha_vantage_key else None
+        self.dark_pool_analyzer = DarkPoolAnalyzer(polygon_key) if polygon_key else None
         self.technical_weight = 0.5
         self.options_weight = 0.3
         self.prediction_weight = 0.2
@@ -180,6 +183,27 @@ class TradingAlgorithm:
             
             if abs(sentiment_analysis['sentiment_momentum']) > 0.2:
                 signals.append(f"{'Increasing' if sentiment_analysis['sentiment_momentum'] > 0 else 'Decreasing'} sentiment momentum")
+        
+        # Dark Pool Analysis (10% weight)
+        if self.dark_pool_analyzer:
+            dark_pool_trades = self.dark_pool_analyzer.fetch_dark_pool_data('NVDA')
+            dark_pool_analysis = self.dark_pool_analyzer.analyze_dark_pool_activity(dark_pool_trades)
+            significant_levels = self.dark_pool_analyzer.get_significant_levels(dark_pool_trades)
+            
+            dark_pool_score = (dark_pool_analysis['composite_score'] + 1) * 50  # Convert -1,1 to 0,100
+            confidence_factors.append(dark_pool_score * 0.1)
+            
+            if dark_pool_analysis['composite_score'] > 0.3:
+                signals.append(f"Bullish: Strong dark pool buying (score: {dark_pool_analysis['composite_score']:.2f})")
+                if dark_pool_analysis['large_trade_impact'] > 0.4:
+                    signals.append("Bullish: Significant large block trades detected")
+            elif dark_pool_analysis['composite_score'] < -0.3:
+                signals.append(f"Bearish: Strong dark pool selling (score: {dark_pool_analysis['composite_score']:.2f})")
+                if dark_pool_analysis['large_trade_impact'] > 0.4:
+                    signals.append("Bearish: Significant large block trades detected")
+            
+            if significant_levels:
+                signals.append(f"Key dark pool levels: {', '.join([f'${level['price']:.2f}' for level in significant_levels[:3]])}")
         
         # Market Regime Analysis (20% weight)
         regime_score = 0
