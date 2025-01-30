@@ -2,11 +2,13 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import LSTM, GRU, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.ensemble import GradientBoostingRegressor
+import xgboost as xgb
 import itertools
 import os
 from data_collector import DataCollector
@@ -14,7 +16,10 @@ from data_collector import DataCollector
 class PricePredictor:
     def __init__(self, sequence_length=60):
         self.sequence_length = sequence_length
-        self.model = None
+        self.lstm_model = None
+        self.gru_model = None
+        self.xgb_model = None
+        self.gb_model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.collector = DataCollector()
         self.best_params = None
@@ -90,7 +95,7 @@ class PricePredictor:
             
         return X, y
         
-    def build_model(self, input_shape, params=None):
+    def build_lstm_model(self, input_shape, params=None):
         if params is None:
             params = {
                 'lstm_units': [128, 64, 32],
@@ -115,6 +120,55 @@ class PricePredictor:
                     metrics=['mae'])
         
         return model
+        
+    def build_gru_model(self, input_shape, params=None):
+        if params is None:
+            params = {
+                'gru_units': [128, 64, 32],
+                'dropout_rate': 0.3,
+                'learning_rate': 0.001,
+                'dense_units': 16
+            }
+        
+        model = Sequential([
+            GRU(params['gru_units'][0], return_sequences=True, input_shape=input_shape),
+            Dropout(params['dropout_rate']),
+            GRU(params['gru_units'][1], return_sequences=True),
+            Dropout(params['dropout_rate']),
+            GRU(params['gru_units'][2], return_sequences=False),
+            Dropout(params['dropout_rate']),
+            Dense(params['dense_units'], activation='relu'),
+            Dense(1)
+        ])
+        
+        model.compile(optimizer=Adam(learning_rate=params['learning_rate']),
+                    loss='huber',
+                    metrics=['mae'])
+        
+        return model
+        
+    def build_tree_models(self, X_flat, y):
+        self.xgb_model = xgb.XGBRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=5,
+            objective='reg:squarederror'
+        )
+        
+        self.gb_model = GradientBoostingRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=5,
+            random_state=42
+        )
+        
+        self.xgb_model.fit(X_flat, y)
+        self.gb_model.fit(X_flat, y)
+        
+    def flatten_sequences(self, X):
+        n_samples = X.shape[0]
+        n_features = X.shape[1] * X.shape[2]
+        return X.reshape((n_samples, n_features))
         
     def grid_search_cv(self, X, y, param_grid, n_splits=5):
         tscv = TimeSeriesSplit(n_splits=n_splits)
@@ -166,35 +220,42 @@ class PricePredictor:
         return best_params, cv_results
                          
     def train(self, X_train, y_train, epochs=50, batch_size=32, validation_split=0.1):
-        param_grid = {
+        # Grid search parameters for neural networks
+        lstm_param_grid = {
             'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
             'dropout_rate': [0.2, 0.3, 0.4],
             'learning_rate': [0.001, 0.0005, 0.0001],
             'dense_units': [16, 32, 64]
         }
         
-        best_params, cv_results = self.grid_search_cv(X_train, y_train, param_grid)
+        gru_param_grid = {
+            'gru_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
+            'dropout_rate': [0.2, 0.3, 0.4],
+            'learning_rate': [0.001, 0.0005, 0.0001],
+            'dense_units': [16, 32, 64]
+        }
         
-        self.model = self.build_model(
+        # Train LSTM model
+        lstm_best_params, lstm_cv_results = self.grid_search_cv(X_train, y_train, lstm_param_grid)
+        self.lstm_model = self.build_lstm_model(
             input_shape=(X_train.shape[1], X_train.shape[2]),
-            params=best_params
+            params=lstm_best_params
+        )
+        
+        # Train GRU model
+        gru_best_params, gru_cv_results = self.grid_search_cv(X_train, y_train, gru_param_grid)
+        self.gru_model = self.build_gru_model(
+            input_shape=(X_train.shape[1], X_train.shape[2]),
+            params=gru_best_params
         )
         
         callbacks = [
-            EarlyStopping(
-                monitor='val_loss',
-                patience=5,
-                restore_best_weights=True
-            ),
-            ModelCheckpoint(
-                filepath='best_model.h5',
-                monitor='val_loss',
-                save_best_only=True,
-                mode='min'
-            )
+            EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+            ModelCheckpoint(filepath='lstm_model.h5', monitor='val_loss', save_best_only=True, mode='min')
         ]
         
-        return self.model.fit(
+        # Final training of neural networks
+        self.lstm_model.fit(
             X_train, y_train,
             epochs=epochs,
             batch_size=batch_size,
@@ -203,14 +264,63 @@ class PricePredictor:
             verbose=1
         )
         
+        callbacks[1] = ModelCheckpoint(filepath='gru_model.h5', monitor='val_loss', save_best_only=True, mode='min')
+        self.gru_model.fit(
+            X_train, y_train,
+            epochs=epochs,
+            batch_size=batch_size,
+            validation_split=validation_split,
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        # Train tree-based models on flattened sequences
+        X_flat = self.flatten_sequences(X_train)
+        self.build_tree_models(X_flat, y_train)
+        
+        # Store best parameters
+        self.best_params = {
+            'lstm': lstm_best_params,
+            'gru': gru_best_params
+        }
+        
+        # Store cross-validation results
+        self.cv_results = {
+            'lstm': lstm_cv_results,
+            'gru': gru_cv_results
+        }
+        
+        return {
+            'lstm_history': self.lstm_model.history.history,
+            'gru_history': self.gru_model.history.history
+        }
+        
     def predict_next_day(self, features):
-        if self.model is None:
-            raise ValueError("Model not built. Call build_model() first.")
+        if not all([self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
+            raise ValueError("Models not built. Call train() first.")
+            
         last_sequence = features[-self.sequence_length:]
         scaled_sequence = self.scaler.transform(last_sequence)
-        prediction = self.model.predict(np.array([scaled_sequence]), verbose=0)
-        dummy = np.zeros((prediction.shape[0], features.shape[1]))
-        dummy[:, 0] = prediction[:, 0]
+        sequence_array = np.array([scaled_sequence])
+        flat_sequence = self.flatten_sequences(sequence_array)
+        
+        # Get predictions from all models
+        lstm_pred = self.lstm_model.predict(sequence_array, verbose=0)
+        gru_pred = self.gru_model.predict(sequence_array, verbose=0)
+        xgb_pred = self.xgb_model.predict(flat_sequence).reshape(-1, 1)
+        gb_pred = self.gb_model.predict(flat_sequence).reshape(-1, 1)
+        
+        # Ensemble prediction (weighted average)
+        weights = [0.3, 0.3, 0.2, 0.2]  # LSTM, GRU, XGBoost, GradientBoosting
+        ensemble_pred = (
+            weights[0] * lstm_pred +
+            weights[1] * gru_pred +
+            weights[2] * xgb_pred +
+            weights[3] * gb_pred
+        )
+        
+        dummy = np.zeros((ensemble_pred.shape[0], features.shape[1]))
+        dummy[:, 0] = ensemble_pred[:, 0]
         return self.scaler.inverse_transform(dummy)[0][0]
         
     def generate_price_ranges(self, current_price, prediction):
@@ -238,55 +348,59 @@ class PricePredictor:
         X_train, X_test = X[:split_idx], X[split_idx:]
         y_train, y_test = y[:split_idx], y[split_idx:]
         
-        # Perform cross-validation with hyperparameter tuning
-        param_grid = {
-            'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
-            'dropout_rate': [0.2, 0.3, 0.4],
-            'learning_rate': [0.001, 0.0005, 0.0001],
-            'dense_units': [16, 32, 64]
-        }
-        
-        best_params, cv_results = self.grid_search_cv(X_train, y_train, param_grid, n_splits=n_splits)
-        
-        # Train final model with best parameters
-        self.model = self.build_model(
-            input_shape=(X_train.shape[1], X_train.shape[2]),
-            params=best_params
-        )
+        # Train all models
         history = self.train(X_train, y_train, epochs=50)
         
-        predictions = []
-        actuals = []
+        # Prepare test data for tree models
+        X_test_flat = self.flatten_sequences(X_test)
         
-        for sequence, actual in zip(X_test, y_test):
-            sequence = np.expand_dims(sequence, axis=0)
-            pred = self.model.predict(sequence, verbose=0)[0][0]
-            
-            # Create dummy arrays with same shape as training features
-            dummy_pred = np.zeros((1, features.shape[1]))
-            dummy_pred[0, 0] = pred
-            pred_price = self.scaler.inverse_transform(dummy_pred)[0][0]
-            
-            dummy_actual = np.zeros((1, features.shape[1]))
-            dummy_actual[0, 0] = actual
-            actual_price = self.scaler.inverse_transform(dummy_actual)[0][0]
-            
-            if not (np.isnan(pred_price) or np.isnan(actual_price)):
-                predictions.append(pred_price)
-                actuals.append(actual_price)
+        # Get predictions from all models
+        lstm_pred = self.lstm_model.predict(X_test, verbose=0)
+        gru_pred = self.gru_model.predict(X_test, verbose=0)
+        xgb_pred = self.xgb_model.predict(X_test_flat).reshape(-1, 1)
+        gb_pred = self.gb_model.predict(X_test_flat).reshape(-1, 1)
         
-        predictions = np.array(predictions)
-        actuals = np.array(actuals)
+        # Calculate ensemble prediction
+        weights = [0.3, 0.3, 0.2, 0.2]  # LSTM, GRU, XGBoost, GradientBoosting
+        ensemble_pred = (
+            weights[0] * lstm_pred +
+            weights[1] * gru_pred +
+            weights[2] * xgb_pred +
+            weights[3] * gb_pred
+        )
         
-        mae = np.mean(np.abs(predictions - actuals))
-        mape = np.mean(np.abs((actuals - predictions) / actuals)) * 100
-        rmse = np.sqrt(np.mean((predictions - actuals)**2))
+        # Calculate metrics for each model
+        def calculate_metrics(predictions, actuals):
+            mae = mean_absolute_error(actuals, predictions)
+            mape = np.mean(np.abs((actuals - predictions) / actuals)) * 100
+            rmse = np.sqrt(mean_squared_error(actuals, predictions))
+            return {'mae': mae, 'mape': mape, 'rmse': rmse}
+        
+        metrics = {
+            'lstm': calculate_metrics(lstm_pred, y_test),
+            'gru': calculate_metrics(gru_pred, y_test),
+            'xgboost': calculate_metrics(xgb_pred, y_test),
+            'gradient_boosting': calculate_metrics(gb_pred, y_test),
+            'ensemble': calculate_metrics(ensemble_pred, y_test)
+        }
+        
+        # Create dummy arrays for inverse transformation
+        dummy = np.zeros((ensemble_pred.shape[0], features.shape[1]))
+        
+        # Transform predictions back to original scale
+        def inverse_transform_preds(preds):
+            dummy[:, 0] = preds.flatten()
+            return self.scaler.inverse_transform(dummy)[:, 0]
         
         return {
-            'mae': mae,
-            'mape': mape,
-            'rmse': rmse,
-            'predictions': predictions,
-            'actuals': actuals,
-            'training_history': history.history
+            'metrics': metrics,
+            'predictions': {
+                'lstm': inverse_transform_preds(lstm_pred),
+                'gru': inverse_transform_preds(gru_pred),
+                'xgboost': inverse_transform_preds(xgb_pred),
+                'gradient_boosting': inverse_transform_preds(gb_pred),
+                'ensemble': inverse_transform_preds(ensemble_pred)
+            },
+            'actuals': inverse_transform_preds(y_test.reshape(-1, 1)),
+            'training_history': history
         }
