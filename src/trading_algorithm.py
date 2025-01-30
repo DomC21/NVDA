@@ -381,6 +381,11 @@ class TradingAlgorithm:
             
     def _combine_signals(self, technical_signals, options_signals, prediction_signals):
         """Combines technical, options, and ML prediction signals into a final recommendation."""
+        current_time = datetime.now()
+        timing_recommendation = self.timing_optimizer.get_timing_recommendation(
+            current_time, 
+            'entry' if technical_signals['signal'] == 'BUY' else 'exit'
+        )
         combined_confidence = (
             technical_signals['confidence'] * self.technical_weight +
             options_signals['confidence'] * self.options_weight +
@@ -441,6 +446,7 @@ class TradingAlgorithm:
                 'estimated_costs': transaction_costs,
                 'optimal_size': optimal_size,
                 'cost_ratio': cost_ratio,
-                'max_slippage': max_slippage
+                'max_slippage': max_slippage,
+                'timing': timing_recommendation
             }
         }
