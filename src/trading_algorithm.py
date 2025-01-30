@@ -393,11 +393,54 @@ class TradingAlgorithm:
         elif combined_confidence <= 30:
             signal = 'SELL'
             
+        # Calculate transaction costs and slippage
+        current_price = self.analyzer.data['Close'].iloc[-1]
+        avg_volume = self.analyzer.data['Volume'].rolling(window=20).mean().iloc[-1]
+        volatility = self.analyzer.data['Close'].pct_change().rolling(window=20).std().iloc[-1]
+        
+        market_data = {
+            'price': current_price,
+            'avg_volume': avg_volume,
+            'volatility': volatility,
+            'side': signal.lower()
+        }
+        
+        position_size = self.current_portfolio_value * 0.1  # 10% position size
+        transaction_costs = self.slippage_model.estimate_transaction_cost(
+            price=current_price,
+            size=position_size,
+            market_data=market_data
+        )
+        
+        # Optimize order size based on slippage constraints
+        max_slippage = 0.003  # 0.3% max slippage
+        optimal_size = self.slippage_model.optimize_order_size(
+            target_size=position_size,
+            max_slippage=max_slippage,
+            market_data=market_data
+        )
+        
+        # Adjust confidence based on transaction costs
+        cost_ratio = transaction_costs['total_cost'] / (current_price * optimal_size)
+        if cost_ratio > 0.005:  # If costs > 0.5% of position value
+            combined_confidence *= 0.8  # Reduce confidence by 20%
+            
+        # Update signal if costs are too high
+        if cost_ratio > 0.01:  # If costs > 1% of position value
+            signal = 'NEUTRAL'
+            combined_confidence *= 0.5
+            
         return {
             'signal': signal,
             'confidence': combined_confidence,
             'technical_reasons': technical_signals['reasons'],
             'options_reasons': options_signals['reasons'],
             'prediction_reasons': prediction_signals['reasons'],
-            'price_prediction': prediction_signals.get('price_prediction', {})
+            'price_prediction': prediction_signals.get('price_prediction', {}),
+            'transaction_analysis': {
+                'estimated_costs': transaction_costs,
+                'optimal_size': optimal_size,
+                'cost_ratio': cost_ratio,
+                'max_slippage': max_slippage
+            }
         }
