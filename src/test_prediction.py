@@ -1,35 +1,78 @@
+import unittest
 from price_predictor import PricePredictor
+import numpy as np
+import pandas as pd
 
-def main():
-    predictor = PricePredictor()
-    
-    print("\nRunning NVDA Price Prediction Backtest...")
-    backtest_results = predictor.backtest()
-    
-    print("\nModel Performance Metrics:")
-    print("=" * 50)
-    print(f"Mean Absolute Error: ${backtest_results['mae']:.2f}")
-    print(f"Mean Absolute Percentage Error: {backtest_results['mape']:.2f}%")
-    print(f"Root Mean Square Error: ${backtest_results['rmse']:.2f}")
-    
-    print("\nTraining Performance:")
-    print("-" * 30)
-    final_loss = backtest_results['training_history']['loss'][-1]
-    final_mae = backtest_results['training_history']['mae'][-1]
-    print(f"Final Training Loss: {final_loss:.4f}")
-    print(f"Final Training MAE: {final_mae:.4f}")
-    
-    features = predictor._extract_features(predictor.collector.collect_all_data()['yfinance'])
-    next_day_price = predictor.predict_next_day(features)
-    ranges = predictor.generate_price_ranges(features['Close'].iloc[-1], next_day_price)
-    
-    print("\nNext Day Price Prediction:")
-    print("=" * 50)
-    print(f"Current Price: ${features['Close'].iloc[-1]:.2f}")
-    print(f"Predicted Next Day Price: ${ranges['prediction']:.2f}")
-    print("\nConfidence Ranges:")
-    for confidence, (lower, upper) in ranges['confidence_ranges'].items():
-        print(f"{confidence} Range: ${lower:.2f} - ${upper:.2f}")
+class TestPricePredictor(unittest.TestCase):
+    def setUp(self):
+        self.predictor = PricePredictor()
+        
+    def test_model_initialization(self):
+        self.assertIsNotNone(self.predictor)
+        self.assertEqual(self.predictor.sequence_length, 60)
+        
+    def test_feature_extraction(self):
+        # Create sample data
+        dates = pd.date_range(start='2023-01-01', periods=100)
+        sample_data = pd.DataFrame({
+            'Close': np.random.randn(100).cumsum() + 100,
+            'Volume': np.random.randint(1000000, 10000000, 100)
+        }, index=dates)
+        
+        features = self.predictor._extract_features(sample_data)
+        self.assertIsNotNone(features)
+        self.assertIn('Close', features.columns)
+        self.assertIn('RSI', features.columns)
+        self.assertIn('MACD', features.columns)
+        
+    def test_price_ranges(self):
+        current_price = 100.0
+        predicted_price = 105.0
+        ranges = self.predictor.generate_price_ranges(current_price, predicted_price)
+        
+        self.assertEqual(ranges['prediction'], predicted_price)
+        self.assertIn('90%', ranges['confidence_ranges'])
+        self.assertIn('70%', ranges['confidence_ranges'])
+        self.assertIn('50%', ranges['confidence_ranges'])
+        
+        # Check range bounds
+        lower_90, upper_90 = ranges['confidence_ranges']['90%']
+        self.assertLess(lower_90, predicted_price)
+        self.assertGreater(upper_90, predicted_price)
+        
+    def test_backtest_results(self):
+        results = self.predictor.backtest(test_size=0.2)
+        
+        # Check required metrics exist
+        self.assertIn('mae', results)
+        self.assertIn('mape', results)
+        self.assertIn('rmse', results)
+        self.assertIn('predictions', results)
+        self.assertIn('actuals', results)
+        
+        # Validate metric values
+        self.assertGreater(results['mae'], 0)
+        self.assertGreater(results['mape'], 0)
+        self.assertGreater(results['rmse'], 0)
+        
+        # Check predictions array
+        self.assertEqual(len(results['predictions']), len(results['actuals']))
+        
+    def test_model_prediction(self):
+        # Create sample sequence data
+        sequence_length = self.predictor.sequence_length
+        sample_data = pd.DataFrame({
+            'Close': np.random.randn(sequence_length + 10).cumsum() + 100,
+            'Volume': np.random.randint(1000000, 10000000, sequence_length + 10)
+        })
+        
+        features = self.predictor._extract_features(sample_data)
+        self.predictor.build_model(input_shape=(sequence_length, features.shape[1]))
+        
+        prediction = self.predictor.predict_next_day(features)
+        self.assertIsNotNone(prediction)
+        self.assertIsInstance(prediction, (float, np.float32, np.float64))
+        self.assertGreater(prediction, 0)
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    unittest.main()
