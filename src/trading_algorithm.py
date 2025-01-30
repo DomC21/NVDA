@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from analysis import StockAnalyzer
+from price_predictor import PricePredictor
 from config import UNUSUAL_WHALES_API_KEY, SYMBOL
 
 class TradingAlgorithm:
@@ -19,9 +20,11 @@ class TradingAlgorithm:
     def __init__(self):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
+        self.predictor = PricePredictor()
         self.unusual_whales_base_url = "https://api.unusualwhales.com/v2"
-        self.technical_weight = 0.6  # Weight for technical analysis
-        self.options_weight = 0.4    # Weight for options flow
+        self.technical_weight = 0.5  # Weight for technical analysis
+        self.options_weight = 0.3    # Weight for options flow
+        self.prediction_weight = 0.2  # Weight for ML predictions
         
     def _get_options_flow(self):
         """Fetches options flow data from Unusual Whales API.
@@ -57,9 +60,10 @@ class TradingAlgorithm:
         """Generates comprehensive trading signals for NVDA stock.
         
         Returns:
-            dict: Contains three components:
+            dict: Contains four components:
                 - technical_signals: Based on price action and indicators
                 - options_signals: From institutional trading activity
+                - prediction_signals: ML-based price predictions
                 - combined_recommendation: Final signal with confidence level
         
         Signal confidence levels:
@@ -69,11 +73,17 @@ class TradingAlgorithm:
         """
         technical_signals = self._generate_technical_signals()
         options_signals = self._analyze_options_flow()
+        prediction_signals = self._generate_prediction_signals()
         
         return {
             'technical_signals': technical_signals,
             'options_signals': options_signals,
-            'combined_recommendation': self._combine_signals(technical_signals, options_signals)
+            'prediction_signals': prediction_signals,
+            'combined_recommendation': self._combine_signals(
+                technical_signals, 
+                options_signals,
+                prediction_signals
+            )
         }
         
     def _generate_technical_signals(self):
@@ -245,17 +255,54 @@ class TradingAlgorithm:
             'reasons': signals
         }
         
-    def _combine_signals(self, technical_signals, options_signals):
-        """Combines technical and options analysis signals into a final recommendation.
-        
-        Signal Interpretation:
-        - BUY: Combined confidence >= 70%
-        - SELL: Combined confidence <= 30%
-        - NEUTRAL: Combined confidence between 30-70%
-        """
+    def _generate_prediction_signals(self):
+        """Generates ML-based price prediction signals."""
+        features = self.analyzer.data
+        if features is None or len(features) < 60:
+            return {'signal': 'NEUTRAL', 'confidence': 50, 'reasons': ['Insufficient data for prediction']}
+            
+        try:
+            self.predictor.build_model(input_shape=(60, features.shape[1]))
+            next_day_price = self.predictor.predict_next_day(features)
+            current_price = features['Close'].iloc[-1]
+            price_ranges = self.predictor.generate_price_ranges(current_price, next_day_price)
+            
+            price_change_pct = ((next_day_price - current_price) / current_price) * 100
+            
+            signal = 'NEUTRAL'
+            confidence = 50
+            reasons = []
+            
+            if price_change_pct > 2:
+                signal = 'BUY'
+                confidence = min(50 + abs(price_change_pct) * 5, 100)
+                reasons.append(f'Bullish: ML predicts {price_change_pct:.1f}% price increase')
+            elif price_change_pct < -2:
+                signal = 'SELL'
+                confidence = min(50 + abs(price_change_pct) * 5, 100)
+                reasons.append(f'Bearish: ML predicts {price_change_pct:.1f}% price decrease')
+            else:
+                reasons.append(f'Neutral: ML predicts minor price change of {price_change_pct:.1f}%')
+                
+            reasons.append(f'Current Price: ${current_price:.2f}')
+            reasons.append(f'Predicted Price: ${next_day_price:.2f}')
+            reasons.append(f'90% Confidence Range: ${price_ranges["confidence_ranges"]["90%"][0]:.2f} - ${price_ranges["confidence_ranges"]["90%"][1]:.2f}')
+            
+            return {
+                'signal': signal,
+                'confidence': confidence,
+                'reasons': reasons,
+                'price_prediction': price_ranges
+            }
+        except Exception as e:
+            return {'signal': 'NEUTRAL', 'confidence': 50, 'reasons': [f'Error generating prediction: {str(e)}']}
+            
+    def _combine_signals(self, technical_signals, options_signals, prediction_signals):
+        """Combines technical, options, and ML prediction signals into a final recommendation."""
         combined_confidence = (
             technical_signals['confidence'] * self.technical_weight +
-            options_signals['confidence'] * self.options_weight
+            options_signals['confidence'] * self.options_weight +
+            prediction_signals['confidence'] * self.prediction_weight
         )
         
         signal = 'NEUTRAL'
@@ -268,5 +315,7 @@ class TradingAlgorithm:
             'signal': signal,
             'confidence': combined_confidence,
             'technical_reasons': technical_signals['reasons'],
-            'options_reasons': options_signals['reasons']
+            'options_reasons': options_signals['reasons'],
+            'prediction_reasons': prediction_signals['reasons'],
+            'price_prediction': prediction_signals.get('price_prediction', {})
         }
