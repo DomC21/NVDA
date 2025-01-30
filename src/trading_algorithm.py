@@ -17,14 +17,15 @@ class TradingAlgorithm:
     - Volume Analysis: Confirms price movements with trading volume strength
     """
     
-    def __init__(self):
+    def __init__(self, portfolio_value: float = 100000.0):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
+        self.risk_manager = RiskManager(portfolio_value)
         self.unusual_whales_base_url = "https://api.unusualwhales.com/v2"
-        self.technical_weight = 0.5  # Weight for technical analysis
-        self.options_weight = 0.3    # Weight for options flow
-        self.prediction_weight = 0.2  # Weight for ML predictions
+        self.technical_weight = 0.5
+        self.options_weight = 0.3
+        self.prediction_weight = 0.2
         
     def _get_options_flow(self):
         """Fetches options flow data from Unusual Whales API.
@@ -57,33 +58,58 @@ class TradingAlgorithm:
             return None
             
     def generate_trading_signals(self):
-        """Generates comprehensive trading signals for NVDA stock.
-        
-        Returns:
-            dict: Contains four components:
-                - technical_signals: Based on price action and indicators
-                - options_signals: From institutional trading activity
-                - prediction_signals: ML-based price predictions
-                - combined_recommendation: Final signal with confidence level
-        
-        Signal confidence levels:
-            - High (>70%): Strong conviction in the signal
-            - Medium (30-70%): Mixed signals, moderate conviction
-            - Low (<30%): Weak conviction, potentially conflicting signals
-        """
+        """Generates comprehensive trading signals with risk management for NVDA stock."""
         technical_signals = self._generate_technical_signals()
         options_signals = self._analyze_options_flow()
         prediction_signals = self._generate_prediction_signals()
+        
+        combined_signals = self._combine_signals(technical_signals, options_signals, prediction_signals)
+        
+        # Add risk management metrics
+        current_price = self.analyzer.data['Close'].iloc[-1]
+        volatility = self.analyzer.data['Close'].pct_change().std() * 100
+        market_regime = 'trending' if technical_signals['confidence'] > 60 else 'ranging'
+        
+        shares, position_metrics = self.risk_manager.calculate_position_size(
+            current_price, volatility, market_regime
+        )
+        
+        atr = self.risk_manager.calculate_atr(
+            self.analyzer.data['High'].values,
+            self.analyzer.data['Low'].values,
+            self.analyzer.data['Close'].values
+        )
+        
+        stop_loss, profit_target = self.risk_manager.calculate_stop_loss(
+            current_price, 
+            'long' if combined_signals['signal'] == 'BUY' else 'short',
+            atr
+        )
+        
+        is_valid, validation_message = self.risk_manager.validate_trade(
+            current_price, stop_loss, profit_target,
+            'long' if combined_signals['signal'] == 'BUY' else 'short'
+        )
+        
+        if not is_valid:
+            combined_signals['signal'] = 'NEUTRAL'
+            combined_signals['confidence'] *= 0.5
+            combined_signals['technical_reasons'].append(f"Risk Management Override: {validation_message}")
         
         return {
             'technical_signals': technical_signals,
             'options_signals': options_signals,
             'prediction_signals': prediction_signals,
-            'combined_recommendation': self._combine_signals(
-                technical_signals, 
-                options_signals,
-                prediction_signals
-            )
+            'combined_recommendation': combined_signals,
+            'risk_metrics': {
+                'position_size': shares,
+                'stop_loss': stop_loss,
+                'profit_target': profit_target,
+                'risk_amount': position_metrics['risk_amount'],
+                'position_value': position_metrics['position_value'],
+                'position_size_pct': position_metrics['position_size_pct'],
+                'validation_message': validation_message
+            }
         }
         
     def _generate_technical_signals(self):
