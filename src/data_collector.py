@@ -13,6 +13,18 @@ class DataCollector:
         alpha_vantage_data = self._get_alpha_vantage_data()
         yfinance_data = self._get_yfinance_data()
         
+        # Validate data length
+        min_required_days = 500  # ~2 years of trading days
+        data_lengths = {
+            'polygon': len(polygon_data),
+            'alpha_vantage': len(alpha_vantage_data),
+            'yfinance': len(yfinance_data)
+        }
+        
+        for source, length in data_lengths.items():
+            if length < min_required_days:
+                print(f"Warning: {source} data has insufficient history. Got {length} days, expected {min_required_days}")
+        
         return {
             'polygon': polygon_data,
             'alpha_vantage': alpha_vantage_data,
