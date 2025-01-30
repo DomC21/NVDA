@@ -1,5 +1,5 @@
 import unittest
-from price_predictor import PricePredictor
+from src.price_predictor import PricePredictor
 import numpy as np
 import pandas as pd
 
