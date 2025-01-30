@@ -11,6 +11,7 @@ from portfolio_risk_manager import PortfolioRiskManager
 from volume_analyzer import VolumeAnalyzer
 from market_regime import MarketRegimeDetector
 from options_flow_analyzer import OptionsFlowAnalyzer
+from sentiment_analyzer import SentimentAnalyzer
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -23,7 +24,7 @@ class TradingAlgorithm:
     - Volume Analysis: Confirms price movements with trading volume strength
     """
     
-    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None):
+    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None, alpha_vantage_key: str = None):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
@@ -31,6 +32,7 @@ class TradingAlgorithm:
         self.drawdown_manager = DrawdownManager(portfolio_value)
         self.portfolio_risk_manager = PortfolioRiskManager(portfolio_value)
         self.options_analyzer = OptionsFlowAnalyzer(unusual_whales_key) if unusual_whales_key else None
+        self.sentiment_analyzer = SentimentAnalyzer(alpha_vantage_key) if alpha_vantage_key else None
         self.technical_weight = 0.5
         self.options_weight = 0.3
         self.prediction_weight = 0.2
@@ -162,6 +164,22 @@ class TradingAlgorithm:
             signals.append("Bearish: Negative volume momentum with price decrease")
             
         confidence_factors.append(volume_score * 0.3)
+        
+        # Sentiment Analysis (10% weight)
+        if self.sentiment_analyzer:
+            news_items = self.sentiment_analyzer.fetch_news_sentiment('NVDA')
+            sentiment_analysis = self.sentiment_analyzer.analyze_sentiment(news_items)
+            
+            sentiment_score = (sentiment_analysis['composite_score'] + 1) * 50  # Convert -1,1 to 0,100
+            confidence_factors.append(sentiment_score * 0.1)
+            
+            if sentiment_analysis['composite_score'] > 0.3:
+                signals.append(f"Bullish: Strong positive sentiment (score: {sentiment_analysis['composite_score']:.2f})")
+            elif sentiment_analysis['composite_score'] < -0.3:
+                signals.append(f"Bearish: Strong negative sentiment (score: {sentiment_analysis['composite_score']:.2f})")
+            
+            if abs(sentiment_analysis['sentiment_momentum']) > 0.2:
+                signals.append(f"{'Increasing' if sentiment_analysis['sentiment_momentum'] > 0 else 'Decreasing'} sentiment momentum")
         
         # Market Regime Analysis (20% weight)
         regime_score = 0
