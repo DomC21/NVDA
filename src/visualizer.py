@@ -62,12 +62,12 @@ class StockVisualizer:
 
 Current Statistics:
 ------------------
-Current Price: ${stats['current_price']:.2f}
-Daily Return: {stats['daily_return']:.2f}%
-Volatility (Daily): {stats['volatility']:.2f}%
-Average Volume: {stats['avg_volume']:,.0f}
-RSI: {stats['rsi']:.2f}
-MACD: {stats['macd']:.2f}
+Current Price: ${stats.get('current_price', 0):.2f}
+Daily Return: {stats.get('daily_return', 0):.2f}%
+Volatility (Daily): {stats.get('volatility', 0):.2f}%
+Average Volume: {stats.get('avg_volume', 0):,.0f}
+RSI: {stats.get('rsi', 0):.2f}
+MACD: {stats.get('macd', 0):.2f}
 
 Technical Signals:
 -----------------

@@ -56,9 +56,9 @@ class PricePredictor:
         features['Volatility'] = features['Daily_Return'].rolling(window=20).std()
         
         # Sentiment features
-        features['News_Sentiment'] = df['News_Sentiment'].fillna(method='ffill').fillna(0.5)  # Forward fill and default to neutral
-        features['Sentiment_MA5'] = features['News_Sentiment'].rolling(window=5).mean().fillna(method='ffill')
-        features['Sentiment_MA10'] = features['News_Sentiment'].rolling(window=10).mean().fillna(method='ffill')
+        features['News_Sentiment'] = df['News_Sentiment'].fillna(0.5)
+        features['Sentiment_MA5'] = features['News_Sentiment'].rolling(window=5).mean().bfill().fillna(0.5)
+        features['Sentiment_MA10'] = features['News_Sentiment'].rolling(window=10).mean().bfill().fillna(0.5)
         
         features = features.dropna()
         return features
@@ -185,7 +185,7 @@ class PricePredictor:
                 X_train, X_val = X[train_idx], X[val_idx]
                 y_train, y_val = y[train_idx], y[val_idx]
                 
-                model = self.build_model(input_shape=(X.shape[1], X.shape[2]), params=params)
+                model = self.build_lstm_model(input_shape=(X.shape[1], X.shape[2]), params=params)
                 
                 callbacks = [
                     EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
@@ -296,7 +296,7 @@ class PricePredictor:
         }
         
     def predict_next_day(self, features):
-        if not all([self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
+        if any(model is None for model in [self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
             raise ValueError("Models not built. Call train() first.")
             
         last_sequence = features[-self.sequence_length:]

@@ -48,10 +48,17 @@ class DataFetcher:
         nvda_data['Sector_RS'] = (nvda_returns + 1).cumprod() / (soxx_returns + 1).cumprod()
         
         # Add sentiment data
-        sentiment_data = self._get_polygon_news_sentiment()
-        sentiment_series = pd.Series(sentiment_data)
-        sentiment_series.index = pd.to_datetime(sentiment_series.index)
-        nvda_data['News_Sentiment'] = sentiment_series.reindex(nvda_data.index)
+        try:
+            sentiment_data = self._get_polygon_news_sentiment()
+            if sentiment_data:
+                sentiment_series = pd.Series(sentiment_data)
+                sentiment_series.index = pd.to_datetime(sentiment_series.index)
+                nvda_data['News_Sentiment'] = sentiment_series.reindex(nvda_data.index).fillna(0.5)
+            else:
+                nvda_data['News_Sentiment'] = pd.Series(0.5, index=nvda_data.index)
+        except Exception as e:
+            print(f"Error processing sentiment data: {e}")
+            nvda_data['News_Sentiment'] = pd.Series(0.5, index=nvda_data.index)
         
         return nvda_data
         
