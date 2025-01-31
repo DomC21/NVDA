@@ -2,10 +2,14 @@ import yfinance as yf
 import pandas as pd
 from polygon import RESTClient
 from alpha_vantage.timeseries import TimeSeries
-from config import POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, SYMBOL
+from config import POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, UNUSUAL_WHALES_API_KEY, SYMBOL
 import requests
 from datetime import datetime, timedelta
 import json
+from typing import Dict, Optional, Tuple
+
+if not all([POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, UNUSUAL_WHALES_API_KEY]):
+    raise ValueError("Missing required API keys in environment variables")
 
 class DataFetcher:
     def __init__(self):
@@ -15,6 +19,8 @@ class DataFetcher:
         self.spy_ticker = yf.Ticker("SPY")
         self.soxx_ticker = yf.Ticker("SOXX")
         self.sentiment_cache = {}
+        self.unusual_whales_api_key = UNUSUAL_WHALES_API_KEY
+        self.unusual_whales_base_url = "https://api.unusualwhales.com"
 
     def get_polygon_data(self):
         from datetime import datetime, timedelta
@@ -91,3 +97,49 @@ class DataFetcher:
         except Exception as e:
             print(f"Error fetching news sentiment: {e}")
             return {}
+            
+    def _make_unusual_whales_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
+        headers = {"Authorization": f"Bearer {self.unusual_whales_api_key}"}
+        url = f"{self.unusual_whales_base_url}/{endpoint}"
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error making request to Unusual Whales API: {e}")
+            return {}
+            
+    def fetch_dark_pool_data(self, ticker: str, date_range: Optional[Tuple[str, str]] = None) -> pd.DataFrame:
+        params = {}
+        if date_range:
+            params.update({
+                "start_date": date_range[0],
+                "end_date": date_range[1]
+            })
+        data = self._make_unusual_whales_request(f"darkpool/{ticker}", params)
+        return pd.DataFrame(data) if data else pd.DataFrame()
+        
+    def fetch_option_volume_levels(self, ticker: str) -> pd.DataFrame:
+        data = self._make_unusual_whales_request(f"stock/{ticker}/option-volume-levels")
+        return pd.DataFrame(data) if data else pd.DataFrame()
+        
+    def fetch_historic_option_volume(self, ticker: str, trading_date: str) -> pd.DataFrame:
+        params = {"date": trading_date}
+        data = self._make_unusual_whales_request(f"stock/{ticker}/historic-option-volume", params)
+        return pd.DataFrame(data) if data else pd.DataFrame()
+        
+    def fetch_greeks_exposure(self, ticker: str) -> Dict:
+        return self._make_unusual_whales_request(f"stock/{ticker}/greek-exposure")
+        
+    def fetch_market_tide(self) -> Dict:
+        return self._make_unusual_whales_request("market/tide")
+        
+    def fetch_option_flow(self, ticker: str, date_range: Optional[Tuple[str, str]] = None) -> pd.DataFrame:
+        params = {}
+        if date_range:
+            params.update({
+                "start_date": date_range[0],
+                "end_date": date_range[1]
+            })
+        data = self._make_unusual_whales_request(f"option-trades/flow-alerts", {"ticker": ticker, **params})
+        return pd.DataFrame(data) if data else pd.DataFrame()
