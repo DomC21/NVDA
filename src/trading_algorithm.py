@@ -9,10 +9,9 @@ from risk_manager import RiskManager
 from drawdown_manager import DrawdownManager
 from portfolio_risk_manager import PortfolioRiskManager
 from volume_analyzer import VolumeAnalyzer
-from market_regime import MarketRegimeDetector
-from options_flow_analyzer import OptionsFlowAnalyzer
-from sentiment_analyzer import SentimentAnalyzer
-from dark_pool_analyzer import DarkPoolAnalyzer
+from market_regime_analyzer import MarketRegimeAnalyzer
+from unusual_whales_analyzer import UnusualWhalesAnalyzer
+from data_fetcher import DataFetcher
 
 class TradingAlgorithm:
     """Trading algorithm for NVDA stock analysis combining technical indicators and options flow data.
@@ -25,39 +24,79 @@ class TradingAlgorithm:
     - Volume Analysis: Confirms price movements with trading volume strength
     """
     
-    def __init__(self, portfolio_value: float = 100000.0, unusual_whales_key: str = None, 
-             alpha_vantage_key: str = None, polygon_key: str = None):
+    def __init__(self, portfolio_value: float = 100000.0):
         self.analyzer = StockAnalyzer()
         self.analyzer.prepare_data()
         self.predictor = PricePredictor()
         self.risk_manager = RiskManager(portfolio_value)
         self.drawdown_manager = DrawdownManager(portfolio_value)
         self.portfolio_risk_manager = PortfolioRiskManager(portfolio_value)
-        self.options_analyzer = OptionsFlowAnalyzer(unusual_whales_key) if unusual_whales_key else None
-        self.sentiment_analyzer = SentimentAnalyzer(alpha_vantage_key) if alpha_vantage_key else None
-        self.dark_pool_analyzer = DarkPoolAnalyzer(polygon_key) if polygon_key else None
+        self.data_fetcher = DataFetcher()
+        self.unusual_whales_analyzer = UnusualWhalesAnalyzer()
+        self.market_regime_analyzer = MarketRegimeAnalyzer()
+        self.technical_weight = 0.4
+        self.options_weight = 0.2
+        self.dark_pool_weight = 0.2
+        self.prediction_weight = 0.2
         self.technical_weight = 0.5
         self.options_weight = 0.3
         self.prediction_weight = 0.2
         self.current_portfolio_value = portfolio_value
         
-    def _get_options_flow(self):
-        """Fetches options flow data from Unusual Whales API."""
-        if not self.options_analyzer:
-            return None
+    def _get_market_data(self):
+        """Fetches comprehensive market data from various sources."""
         try:
-            return self.options_analyzer.fetch_options_flow('NVDA')
+            dark_pool_data = self.data_fetcher.fetch_dark_pool_data(SYMBOL)
+            option_flow_data = self.data_fetcher.fetch_option_flow(SYMBOL)
+            market_tide_data = self.data_fetcher.fetch_market_tide()
+            greeks_data = self.data_fetcher.fetch_greeks_exposure(SYMBOL)
+            option_volume_data = self.data_fetcher.fetch_option_volume_levels(SYMBOL)
+            
+            return {
+                'dark_pool': dark_pool_data,
+                'option_flow': option_flow_data,
+                'market_tide': market_tide_data,
+                'greeks': greeks_data,
+                'option_volume': option_volume_data
+            }
         except Exception as e:
-            print(f"Error fetching options flow data: {e}")
-            return None
+            print(f"Error fetching market data: {e}")
+            return {}
             
     def generate_trading_signals(self):
         """Generates comprehensive trading signals with risk management for NVDA stock."""
         technical_signals = self._generate_technical_signals()
-        options_signals = self._analyze_options_flow()
+        market_signals = self._analyze_market_data()
         prediction_signals = self._generate_prediction_signals()
         
-        combined_signals = self._combine_signals(technical_signals, options_signals, prediction_signals)
+        # Get market data for regime analysis
+        market_data = self._get_market_data()
+        
+        # Get market regime analysis
+        regime_analysis = self.market_regime_analyzer.analyze(
+            self.analyzer.data,
+            market_data.get('market_tide'),
+            market_data.get('option_flow')
+        )
+        
+        # Adjust signal weights based on market regime
+        if regime_analysis.regime == 'trending':
+            self.technical_weight = 0.5
+            self.options_weight = 0.2
+            self.dark_pool_weight = 0.2
+            self.prediction_weight = 0.1
+        elif regime_analysis.regime == 'volatile':
+            self.technical_weight = 0.3
+            self.options_weight = 0.3
+            self.dark_pool_weight = 0.3
+            self.prediction_weight = 0.1
+        else:  # ranging or unknown
+            self.technical_weight = 0.4
+            self.options_weight = 0.2
+            self.dark_pool_weight = 0.2
+            self.prediction_weight = 0.2
+            
+        combined_signals = self._combine_signals(technical_signals, market_signals, prediction_signals)
         
         # Add risk management metrics
         current_price = self.analyzer.data['Close'].iloc[-1]
@@ -119,8 +158,9 @@ class TradingAlgorithm:
             
         return {
             'technical_signals': technical_signals,
-            'options_signals': options_signals,
+            'market_signals': market_signals,
             'prediction_signals': prediction_signals,
+            'market_regime': regime_analysis,
             'combined_recommendation': combined_signals,
             'risk_metrics': {
                 'position_size': shares,
@@ -305,31 +345,55 @@ class TradingAlgorithm:
             'reasons': signals
         }
         
-    def _analyze_options_flow(self):
-        """Analyzes options flow data to gauge institutional sentiment."""
-        flow = self._get_options_flow()
-        if not flow:
-            return {'signal': 'NEUTRAL', 'confidence': 50, 'reasons': ['No options flow data available']}
+    def _analyze_market_data(self):
+        """Analyzes comprehensive market data from multiple sources."""
+        market_data = self._get_market_data()
+        if not market_data:
+            return {'signal': 'NEUTRAL', 'confidence': 50, 'reasons': ['No market data available']}
             
-        analysis = self.options_analyzer.analyze_flow(flow)
-        signals = []
+        # Analyze dark pool activity
+        dark_pool_analysis = self.unusual_whales_analyzer.analyze_dark_pool(market_data['dark_pool'])
         
-        if analysis['composite_score'] > 0.3:
-            signal = 'BUY'
-            confidence = 50 + (analysis['composite_score'] * 50)
-            signals.append(f"Bullish: Strong institutional buying (score: {analysis['composite_score']:.2f})")
-            if analysis['unusual_activity_score'] > 0.5:
-                signals.append("Bullish: Significant unusual call activity detected")
-        elif analysis['composite_score'] < -0.3:
-            signal = 'SELL'
-            confidence = 50 - (analysis['composite_score'] * 50)
-            signals.append(f"Bearish: Strong institutional selling (score: {analysis['composite_score']:.2f})")
-            if analysis['unusual_activity_score'] > 0.5:
-                signals.append("Bearish: Significant unusual put activity detected")
+        # Analyze options flow
+        options_analysis = self.unusual_whales_analyzer.analyze_option_flow(market_data['option_flow'])
+        
+        # Analyze market tide
+        market_tide_score = self.unusual_whales_analyzer.analyze_market_tide(market_data['market_tide'])
+        
+        # Analyze greeks exposure
+        greek_exposure = self.unusual_whales_analyzer.analyze_greeks(market_data['greeks'])
+        
+        # Analyze volume levels
+        volume_levels = self.unusual_whales_analyzer.analyze_volume_levels(market_data['option_volume'])
+        
+        # Generate comprehensive analysis
+        analysis = UnusualWhalesAnalysis(
+            dark_pool_metrics=dark_pool_analysis,
+            option_flow_metrics=options_analysis,
+            market_tide_score=market_tide_score,
+            greek_exposure=greek_exposure,
+            volume_levels=volume_levels,
+            signal_strength=0.0
+        )
+        
+        # Generate signal
+        signal, confidence = self.unusual_whales_analyzer.generate_signal(analysis)
+        
+        signals = []
+        if signal == 'buy':
+            signals.extend([
+                f"Bullish: Dark pool net flow {dark_pool_analysis['net_flow']:.2f}",
+                f"Bullish: Options flow score {options_analysis['bullish_flow_score']:.2f}",
+                f"Market tide score: {market_tide_score:.2f}",
+                f"Net delta exposure: {greek_exposure['net_delta']:.2f}"
+            ])
         else:
-            signal = 'NEUTRAL'
-            confidence = 50
-            signals.append(f"Neutral: Mixed institutional sentiment (score: {analysis['composite_score']:.2f})")
+            signals.extend([
+                f"Bearish: Dark pool net flow {dark_pool_analysis['net_flow']:.2f}",
+                f"Bearish: Options flow score {options_analysis['bullish_flow_score']:.2f}",
+                f"Market tide score: {market_tide_score:.2f}",
+                f"Net delta exposure: {greek_exposure['net_delta']:.2f}"
+            ])
             
         return {
             'signal': signal,
@@ -386,9 +450,29 @@ class TradingAlgorithm:
             current_time, 
             'entry' if technical_signals['signal'] == 'BUY' else 'exit'
         )
+        # Get market regime analysis
+        regime_analysis = self.market_regime_analyzer.analyze(
+            self.analyzer.data,
+            market_data.get('market_tide'),
+            market_data.get('option_flow')
+        )
+        
+        # Adjust weights based on market regime
+        if regime_analysis.regime == 'trending':
+            self.technical_weight = 0.5
+            self.options_weight = 0.2
+            self.dark_pool_weight = 0.2
+            self.prediction_weight = 0.1
+        elif regime_analysis.regime == 'volatile':
+            self.technical_weight = 0.3
+            self.options_weight = 0.3
+            self.dark_pool_weight = 0.3
+            self.prediction_weight = 0.1
+        
         combined_confidence = (
             technical_signals['confidence'] * self.technical_weight +
             options_signals['confidence'] * self.options_weight +
+            dark_pool_analysis['net_flow'] * 100 * self.dark_pool_weight +
             prediction_signals['confidence'] * self.prediction_weight
         )
         
