@@ -1,0 +1,106 @@
+import unittest
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from .market_regime_analyzer import MarketRegimeAnalyzer, MarketRegimeAnalysis
+
+class TestMarketRegimeAnalyzer(unittest.TestCase):
+    def setUp(self):
+        self.analyzer = MarketRegimeAnalyzer()
+        
+        # Create sample price data
+        dates = pd.date_range(start='2024-01-01', periods=100, freq='D')
+        self.price_data = pd.DataFrame({
+            'Date': dates,
+            'Open': np.random.normal(100, 2, 100),
+            'High': np.random.normal(102, 2, 100),
+            'Low': np.random.normal(98, 2, 100),
+            'Close': np.random.normal(100, 2, 100),
+            'Volume': np.random.normal(1000000, 200000, 100)
+        })
+        
+        # Create trending price data
+        self.trending_data = self.price_data.copy()
+        self.trending_data['Close'] = 100 + np.linspace(0, 10, 100)
+        
+        # Create ranging price data
+        self.ranging_data = self.price_data.copy()
+        self.ranging_data['Close'] = 100 + np.sin(np.linspace(0, 4*np.pi, 100))
+        
+        # Create volatile price data
+        self.volatile_data = self.price_data.copy()
+        self.volatile_data['Close'] = 100 + np.random.normal(0, 5, 100)
+        
+        # Sample market tide data
+        self.market_tide = {
+            'sentiment': 'bullish',
+            'score': 0.75
+        }
+        
+        # Sample options data
+        self.options_data = pd.DataFrame({
+            'type': ['call', 'put', 'call', 'put'],
+            'volume': [1500, 500, 1200, 800],
+            'premium': [150000, 50000, 120000, 80000]
+        })
+        
+    def test_analyze_trending_market(self):
+        result = self.analyzer.analyze(self.trending_data)
+        
+        self.assertEqual(result.regime, 'trending')
+        self.assertGreater(result.trend_strength, 0)
+        self.assertTrue(0 <= result.confidence <= 1)
+        
+    def test_analyze_ranging_market(self):
+        result = self.analyzer.analyze(self.ranging_data)
+        
+        self.assertEqual(result.regime, 'ranging')
+        self.assertLess(abs(result.trend_strength), self.analyzer.trend_threshold)
+        
+    def test_analyze_volatile_market(self):
+        result = self.analyzer.analyze(self.volatile_data)
+        
+        self.assertEqual(result.volatility_regime, 'high')
+        self.assertTrue(len(result.support_resistance) <= 3)
+        
+    def test_market_tide_integration(self):
+        result = self.analyzer.analyze(
+            self.trending_data,
+            market_tide=self.market_tide
+        )
+        
+        self.assertEqual(result.regime, 'trending')
+        self.assertGreater(result.confidence, 0.6)
+        
+    def test_options_flow_integration(self):
+        result = self.analyzer.analyze(
+            self.trending_data,
+            options_data=self.options_data
+        )
+        
+        self.assertTrue(0 <= result.confidence <= 1)
+        
+    def test_support_resistance_levels(self):
+        result = self.analyzer.analyze(self.ranging_data)
+        
+        self.assertIsInstance(result.support_resistance, list)
+        self.assertLessEqual(len(result.support_resistance), 3)
+        if result.support_resistance:
+            self.assertTrue(all(isinstance(x, float) for x in result.support_resistance))
+            
+    def test_empty_data(self):
+        empty_data = pd.DataFrame()
+        result = self.analyzer.analyze(empty_data)
+        
+        self.assertEqual(result.regime, 'unknown')
+        self.assertEqual(result.trend_strength, 0.0)
+        self.assertEqual(result.confidence, 0.0)
+        
+    def test_momentum_calculation(self):
+        result = self.analyzer.analyze(self.trending_data)
+        
+        self.assertGreater(result.momentum_score, 0)
+        self.assertTrue(-1 <= result.momentum_score <= 1)
+
+if __name__ == '__main__':
+    unittest.main()
