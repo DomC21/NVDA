@@ -43,10 +43,48 @@ class DataFetcher:
         data, _ = self.alpha_vantage.get_daily(symbol=SYMBOL, outputsize='full')
         return data.head(730)
 
-    def get_yfinance_data(self):
-        nvda_data = self.yf_ticker.history(period="2y")
-        spy_data = self.spy_ticker.history(period="2y")
-        soxx_data = self.soxx_ticker.history(period="2y")
+    def get_yfinance_data(self, start_date=None, end_date=None):
+        """Fetch data from yfinance with optional date range."""
+        try:
+            if start_date and end_date:
+                nvda_data = self.yf_ticker.history(start=start_date, end=end_date)
+                spy_data = self.spy_ticker.history(start=start_date, end=end_date)
+                soxx_data = self.soxx_ticker.history(start=start_date, end=end_date)
+            else:
+                nvda_data = self.yf_ticker.history(period="2y")
+                spy_data = self.spy_ticker.history(period="2y")
+                soxx_data = self.soxx_ticker.history(period="2y")
+                
+            # Calculate correlations and relative strength
+            nvda_returns = nvda_data['Close'].pct_change()
+            spy_returns = spy_data['Close'].pct_change()
+            soxx_returns = soxx_data['Close'].pct_change()
+            
+            nvda_data['Daily_Return'] = nvda_returns
+            nvda_data['SPY_Correlation'] = nvda_returns.rolling(window=20).corr(spy_returns)
+            nvda_data['SOXX_Correlation'] = nvda_returns.rolling(window=20).corr(soxx_returns)
+            nvda_data['Market_RS'] = (nvda_returns + 1).cumprod() / (spy_returns + 1).cumprod()
+            nvda_data['Sector_RS'] = (nvda_returns + 1).cumprod() / (soxx_returns + 1).cumprod()
+            nvda_data['Rolling_Volatility'] = nvda_returns.rolling(window=20).std()
+            
+            # Add sentiment data
+            try:
+                sentiment_data = self._get_polygon_news_sentiment()
+                if sentiment_data:
+                    sentiment_series = pd.Series(sentiment_data)
+                    sentiment_series.index = pd.to_datetime(sentiment_series.index)
+                    nvda_data['News_Sentiment'] = sentiment_series.reindex(nvda_data.index).fillna(0.5)
+                else:
+                    nvda_data['News_Sentiment'] = pd.Series(0.5, index=nvda_data.index)
+            except Exception as e:
+                print(f"Error processing sentiment data: {e}")
+                nvda_data['News_Sentiment'] = pd.Series(0.5, index=nvda_data.index)
+            
+            return nvda_data
+            
+        except Exception as e:
+            print(f"Error in get_yfinance_data: {e}")
+            return pd.DataFrame()
         
         # Calculate correlations and relative strength
         nvda_returns = nvda_data['Close'].pct_change()

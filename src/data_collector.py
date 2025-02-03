@@ -144,3 +144,14 @@ class DataCollector:
         except Exception as e:
             print(f"Error fetching market data for {symbol}: {e}")
             return pd.DataFrame()
+            
+    def collect_historical_data(self, symbol: str, start_date, end_date) -> pd.DataFrame:
+        """Collect historical data for a given symbol and date range."""
+        try:
+            df = self.fetcher.get_yfinance_data(start_date, end_date)
+            if df is None or df.empty:
+                return pd.DataFrame()
+            return df
+        except Exception as e:
+            print(f"Error collecting historical data: {e}")
+            return pd.DataFrame()
