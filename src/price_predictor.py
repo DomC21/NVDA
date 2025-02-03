@@ -259,7 +259,7 @@ class PricePredictor:
             prediction = self.model.predict(sequence_array, verbose=0)
             
             # Convert prediction to proper shape for inverse transform
-            dummy = np.zeros((prediction.shape[0], len(self.feature_columns)))
+            dummy = np.zeros((prediction.shape[0], len(self._feature_columns)))
             dummy[:, 0] = prediction.flatten()
             return float(self.scaler.inverse_transform(dummy)[0][0])
         except Exception as e:
