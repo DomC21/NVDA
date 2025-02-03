@@ -14,16 +14,11 @@ import os
 from data_collector import DataCollector
 
 class PricePredictor:
-    def __init__(self, sequence_length=60):
+    def __init__(self, sequence_length=50):
         self.sequence_length = sequence_length
-        self.lstm_model = None
-        self.gru_model = None
-        self.xgb_model = None
-        self.gb_model = None
+        self.model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.collector = DataCollector()
-        self.best_params = None
-        self.cv_results = None
         
     def prepare_data(self):
         raw_data = self.collector.collect_all_data()
@@ -219,43 +214,22 @@ class PricePredictor:
         self.cv_results = cv_results
         return best_params, cv_results
                          
-    def train(self, X_train, y_train, epochs=50, batch_size=32, validation_split=0.1):
-        # Grid search parameters for neural networks
-        lstm_param_grid = {
-            'lstm_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
-            'dropout_rate': [0.2, 0.3, 0.4],
-            'learning_rate': [0.001, 0.0005, 0.0001],
-            'dense_units': [16, 32, 64]
-        }
-        
-        gru_param_grid = {
-            'gru_units': [[128, 64, 32], [256, 128, 64], [64, 32, 16]],
-            'dropout_rate': [0.2, 0.3, 0.4],
-            'learning_rate': [0.001, 0.0005, 0.0001],
-            'dense_units': [16, 32, 64]
-        }
-        
-        # Train LSTM model
-        lstm_best_params, lstm_cv_results = self.grid_search_cv(X_train, y_train, lstm_param_grid)
-        self.lstm_model = self.build_lstm_model(
-            input_shape=(X_train.shape[1], X_train.shape[2]),
-            params=lstm_best_params
-        )
-        
-        # Train GRU model
-        gru_best_params, gru_cv_results = self.grid_search_cv(X_train, y_train, gru_param_grid)
-        self.gru_model = self.build_gru_model(
-            input_shape=(X_train.shape[1], X_train.shape[2]),
-            params=gru_best_params
-        )
+    def train(self, X_train, y_train, epochs=10, batch_size=32, validation_split=0.1):
+        if self.model is None:
+            self.model = Sequential([
+                LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),
+                Dropout(0.2),
+                LSTM(50),
+                Dropout(0.2),
+                Dense(1)
+            ])
+            self.model.compile(optimizer=Adam(learning_rate=0.001), loss='mse')
         
         callbacks = [
-            EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-            ModelCheckpoint(filepath='lstm_model.h5', monitor='val_loss', save_best_only=True, mode='min')
+            EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
         ]
         
-        # Final training of neural networks
-        self.lstm_model.fit(
+        history = self.model.fit(
             X_train, y_train,
             epochs=epochs,
             batch_size=batch_size,
@@ -264,81 +238,25 @@ class PricePredictor:
             verbose=1
         )
         
-        callbacks[1] = ModelCheckpoint(filepath='gru_model.h5', monitor='val_loss', save_best_only=True, mode='min')
-        self.gru_model.fit(
-            X_train, y_train,
-            epochs=epochs,
-            batch_size=batch_size,
-            validation_split=validation_split,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        # Train tree-based models on flattened sequences
-        X_flat = self.flatten_sequences(X_train)
-        self.build_tree_models(X_flat, y_train)
-        
-        # Store best parameters
-        self.best_params = {
-            'lstm': lstm_best_params,
-            'gru': gru_best_params
-        }
-        
-        # Store cross-validation results
-        self.cv_results = {
-            'lstm': lstm_cv_results,
-            'gru': gru_cv_results
-        }
-        
-        return {
-            'lstm_history': self.lstm_model.history.history,
-            'gru_history': self.gru_model.history.history
-        }
+        return history.history
         
     def predict_next_day(self, features):
+        if self.model is None:
+            raise ValueError("Model not trained. Call train() first.")
+        
         try:
-            if any(model is None for model in [self.lstm_model, self.gru_model, self.xgb_model, self.gb_model]):
-                raise ValueError("Models not built. Call train() first.")
-            
             last_sequence = features[-self.sequence_length:]
             scaled_sequence = self.scaler.transform(last_sequence)
             sequence_array = np.array([scaled_sequence])
-            flat_sequence = self.flatten_sequences(sequence_array)
             
-            # Get predictions from all models
-            predictions = {}
+            prediction = self.model.predict(sequence_array, verbose=0)
             
-            if self.lstm_model is not None:
-                predictions['lstm'] = self.lstm_model.predict(sequence_array, verbose=0)
-            else:
-                raise ValueError("LSTM model not initialized")
-                
-            if self.gru_model is not None:
-                predictions['gru'] = self.gru_model.predict(sequence_array, verbose=0)
-            else:
-                raise ValueError("GRU model not initialized")
-                
-            if self.xgb_model is not None:
-                predictions['xgb'] = self.xgb_model.predict(flat_sequence).reshape(-1, 1)
-            else:
-                raise ValueError("XGBoost model not initialized")
-                
-            if self.gb_model is not None:
-                predictions['gb'] = self.gb_model.predict(flat_sequence).reshape(-1, 1)
-            else:
-                raise ValueError("Gradient Boosting model not initialized")
-        
-        # Ensemble prediction (weighted average)
-            weights = {'lstm': 0.3, 'gru': 0.3, 'xgb': 0.2, 'gb': 0.2}
-            ensemble_pred = sum(weights[k] * v for k, v in predictions.items())
+            # Convert prediction to proper shape for inverse transform
+            dummy = np.zeros((prediction.shape[0], features.shape[1]))
+            dummy[:, 0] = prediction.flatten()
+            return float(self.scaler.inverse_transform(dummy)[0][0])
         except Exception as e:
             raise ValueError(f"Error during prediction: {str(e)}")
-        
-        # Convert ensemble prediction to proper shape
-        ensemble_pred_array = np.array(ensemble_pred).reshape(-1, 1)
-        dummy = np.zeros((ensemble_pred_array.shape[0], features.shape[1]))
-        dummy[:, 0] = ensemble_pred_array.flatten()
-        return float(self.scaler.inverse_transform(dummy)[0][0])
         
     def generate_price_ranges(self, current_price, prediction):
         volatility = 0.02  # 2% assumed volatility
