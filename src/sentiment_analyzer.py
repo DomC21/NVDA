@@ -1,9 +1,8 @@
 import requests
-import pandas as pd
 import numpy as np
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime, timedelta
+from typing import Dict, List
+from datetime import datetime
 
 @dataclass
 class NewsItem:
@@ -50,8 +49,11 @@ class SentimentAnalyzer:
     def _calculate_impact_score(self, sentiment: float, relevance: float) -> float:
         return sentiment * relevance
         
-    def analyze_sentiment(self, news_items: List[NewsItem], 
-                         time_decay_factor: float = 0.9) -> Dict[str, float]:
+    def analyze_sentiment(
+            self,
+            news_items: List[NewsItem],
+            time_decay_factor: float = 0.9
+    ) -> Dict[str, float]:
         if not news_items:
             return {
                 'composite_score': 0.0,
@@ -61,17 +63,17 @@ class SentimentAnalyzer:
             }
             
         now = datetime.now()
-        weighted_scores = []
+        weighted_scores: List[float] = []
         
         for i, item in enumerate(news_items):
             time_diff = (now - item.published_at).total_seconds() / 3600  # hours
             time_weight = time_decay_factor ** (time_diff / 24)  # decay per day
-            weighted_scores.append(item.impact_score * time_weight)
+            weighted_scores.append(float(item.impact_score * time_weight))
             
-        recent_sentiment = np.mean(weighted_scores[:5]) if len(weighted_scores) >= 5 else np.mean(weighted_scores)
+        recent_sentiment = float(np.mean(weighted_scores[:5]) if len(weighted_scores) >= 5 else np.mean(weighted_scores))
         sentiment_momentum = self._calculate_sentiment_momentum(weighted_scores)
         
-        composite_score = 0.7 * recent_sentiment + 0.3 * sentiment_momentum
+        composite_score = float(0.7 * recent_sentiment + 0.3 * sentiment_momentum)
         confidence = min(1.0, len(news_items) / 10)  # More news items = higher confidence
         
         return {
@@ -85,6 +87,6 @@ class SentimentAnalyzer:
         if len(scores) < 2:
             return 0.0
             
-        recent_avg = np.mean(scores[:len(scores)//2])
-        older_avg = np.mean(scores[len(scores)//2:])
-        return recent_avg - older_avg
+        recent_avg = float(np.mean(scores[:len(scores)//2]))
+        older_avg = float(np.mean(scores[len(scores)//2:]))
+        return float(recent_avg - older_avg)

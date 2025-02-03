@@ -1,9 +1,9 @@
-import requests
-import pandas as pd
-import numpy as np
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+from typing import Dict, List
+import numpy as np
+import pandas as pd
+import requests
 
 @dataclass
 class DarkPoolData:
@@ -61,22 +61,22 @@ class DarkPoolAnalyzer:
         sell_volume = total_volume - buy_volume
         
         # Net flow (-1 to 1)
-        net_flow = (buy_volume - sell_volume) / total_volume if total_volume > 0 else 0
+        net_flow = float((buy_volume - sell_volume) / total_volume if total_volume > 0 else 0)
         
         # Buy pressure (0 to 1)
-        buy_pressure = buy_volume / total_volume if total_volume > 0 else 0
+        buy_pressure = float(buy_volume / total_volume if total_volume > 0 else 0)
         
         # Large trade impact
-        avg_trade_size = total_volume / len(trades)
+        avg_trade_size = float(total_volume / len(trades))
         large_trades = [t for t in trades if t.volume > avg_trade_size * 2]
         large_trade_volume = sum(t.volume for t in large_trades)
-        large_trade_impact = large_trade_volume / total_volume if total_volume > 0 else 0
+        large_trade_impact = float(large_trade_volume / total_volume if total_volume > 0 else 0)
         
         # Volume distribution analysis
-        volumes = [t.volume for t in trades]
-        volume_std = np.std(volumes) if volumes else 0
-        volume_mean = np.mean(volumes) if volumes else 0
-        volume_distribution = volume_std / volume_mean if volume_mean > 0 else 0
+        volumes = [float(t.volume) for t in trades]
+        volume_std = float(np.std(volumes) if volumes else 0)
+        volume_mean = float(np.mean(volumes) if volumes else 0)
+        volume_distribution = float(volume_std / volume_mean if volume_mean > 0 else 0)
         
         # Composite score (-1 to 1)
         composite_score = (

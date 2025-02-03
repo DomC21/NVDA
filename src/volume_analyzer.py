@@ -65,17 +65,18 @@ class VolumeAnalyzer:
         return self.volume_profile
         
     def get_support_resistance(self, min_volume_threshold: float = 0.1) -> List[float]:
-        if self.volume_profile is None:
-            self.calculate_volume_profile()
+        volume_profile = self.volume_profile
+        if volume_profile is None:
+            volume_profile = self.calculate_volume_profile()
             
-        volume_threshold = np.max(self.volume_profile.volume_at_price) * min_volume_threshold
+        volume_threshold = np.max(volume_profile.volume_at_price) * min_volume_threshold
         significant_levels = []
         
-        for i in range(1, len(self.volume_profile.volume_at_price) - 1):
-            if self.volume_profile.volume_at_price[i] > volume_threshold:
-                if (self.volume_profile.volume_at_price[i] > self.volume_profile.volume_at_price[i-1] and
-                    self.volume_profile.volume_at_price[i] > self.volume_profile.volume_at_price[i+1]):
-                    significant_levels.append(self.volume_profile.price_levels[i])
+        for i in range(1, len(volume_profile.volume_at_price) - 1):
+            if volume_profile.volume_at_price[i] > volume_threshold:
+                if (volume_profile.volume_at_price[i] > volume_profile.volume_at_price[i-1] and
+                    volume_profile.volume_at_price[i] > volume_profile.volume_at_price[i+1]):
+                    significant_levels.append(volume_profile.price_levels[i])
                     
         return significant_levels
         
@@ -96,8 +97,9 @@ class VolumeAnalyzer:
         }
         
     def get_entry_exit_signals(self, current_price: float) -> Dict[str, Dict[str, float]]:
-        if self.volume_profile is None:
-            self.calculate_volume_profile()
+        volume_profile = self.volume_profile
+        if volume_profile is None:
+            volume_profile = self.calculate_volume_profile()
             
         volume_trend = self.analyze_volume_trend()
         support_resistance = self.get_support_resistance()
@@ -105,8 +107,8 @@ class VolumeAnalyzer:
         supports = [level for level in support_resistance if level < current_price]
         resistances = [level for level in support_resistance if level > current_price]
         
-        nearest_support = max(supports) if supports else self.volume_profile.value_area_low
-        nearest_resistance = min(resistances) if resistances else self.volume_profile.value_area_high
+        nearest_support = max(supports) if supports else volume_profile.value_area_low
+        nearest_resistance = min(resistances) if resistances else volume_profile.value_area_high
         
         long_risk = current_price - nearest_support
         long_reward = nearest_resistance - current_price

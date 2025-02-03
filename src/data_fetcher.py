@@ -1,12 +1,17 @@
-import yfinance as yf
+from datetime import datetime, timedelta
+from typing import Dict, Optional, Tuple, Any
+import json
+import requests
 import pandas as pd
+import yfinance as yf
 from polygon import RESTClient
 from alpha_vantage.timeseries import TimeSeries
-from config import POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, UNUSUAL_WHALES_API_KEY, SYMBOL
-import requests
-from datetime import datetime, timedelta
-import json
-from typing import Dict, Optional, Tuple
+from config import (
+    POLYGON_API_KEY,
+    ALPHA_VANTAGE_API_KEY,
+    UNUSUAL_WHALES_API_KEY,
+    SYMBOL
+)
 
 if not all([POLYGON_API_KEY, ALPHA_VANTAGE_API_KEY, UNUSUAL_WHALES_API_KEY]):
     raise ValueError("Missing required API keys in environment variables")

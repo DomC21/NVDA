@@ -1,6 +1,5 @@
-import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
+from typing import Dict
 from datetime import datetime, time
 
 class TradingTimeOptimizer:
@@ -49,30 +48,36 @@ class TradingTimeOptimizer:
         normalized = volatility / volatility.max()
         return pd.DataFrame({'volatility': normalized})
         
-    def _calculate_entry_scores(self, returns: pd.DataFrame, 
-                              volume: pd.DataFrame,
-                              volatility: pd.DataFrame) -> pd.DataFrame:
+    def _calculate_entry_scores(
+            self,
+            returns: pd.DataFrame,
+            volume: pd.DataFrame,
+            volatility: pd.DataFrame
+    ) -> pd.DataFrame:
         scores = pd.DataFrame()
         scores['return_score'] = (returns + 1).rank(pct=True)
         scores['volume_score'] = volume.rank(pct=True)
         scores['volatility_score'] = (1 - volatility).rank(pct=True)
         
         weights = {'return_score': 0.4, 'volume_score': 0.4, 'volatility_score': 0.2}
-        scores['total_score'] = sum(scores[col] * weight 
-                                  for col, weight in weights.items())
+        scores['total_score'] = sum(
+            scores[col] * weight for col, weight in weights.items())
         return scores
         
-    def _calculate_exit_scores(self, returns: pd.DataFrame,
-                             volume: pd.DataFrame,
-                             volatility: pd.DataFrame) -> pd.DataFrame:
+    def _calculate_exit_scores(
+            self,
+            returns: pd.DataFrame,
+            volume: pd.DataFrame,
+            volatility: pd.DataFrame
+    ) -> pd.DataFrame:
         scores = pd.DataFrame()
         scores['return_score'] = (-returns + 1).rank(pct=True)
         scores['volume_score'] = volume.rank(pct=True)
         scores['volatility_score'] = volatility.rank(pct=True)
         
         weights = {'return_score': 0.4, 'volume_score': 0.4, 'volatility_score': 0.2}
-        scores['total_score'] = sum(scores[col] * weight 
-                                  for col, weight in weights.items())
+        scores['total_score'] = sum(
+            scores[col] * weight for col, weight in weights.items())
         return scores
         
     def _get_optimal_time(self, scores: pd.DataFrame) -> Dict:

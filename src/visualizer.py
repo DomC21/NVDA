@@ -1,7 +1,5 @@
 import matplotlib.pyplot as plt
-import seaborn as sns
 from analysis import StockAnalyzer
-import pandas as pd
 
 class StockVisualizer:
     def __init__(self):
@@ -79,7 +77,10 @@ MACD: {float(stats.get('macd', 0)):.2f}
 Technical Signals:
 -----------------
 """
-        for signal in signals:
-            report += f"- {signal}\n"
-            
-        return report
+            for signal in signals:
+                report += f"- {signal}\n"
+                
+            return report
+        except Exception as e:
+            print(f"Error generating analysis report: {e}")
+            return "Error generating analysis report"

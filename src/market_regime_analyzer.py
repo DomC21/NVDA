@@ -1,8 +1,7 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime
 
 @dataclass
 class MarketRegimeAnalysis:
@@ -22,10 +21,11 @@ class MarketRegimeAnalyzer:
         self.volatility_window = volatility_window
         self.trend_threshold = trend_threshold
         
-    def analyze(self, 
-               price_data: pd.DataFrame,
-               market_tide: Optional[Dict] = None,
-               options_data: Optional[pd.DataFrame] = None) -> MarketRegimeAnalysis:
+    def analyze(
+            self,
+            price_data: pd.DataFrame,
+            market_tide: Optional[Dict] = None,
+            options_data: Optional[pd.DataFrame] = None) -> MarketRegimeAnalysis:
         if price_data.empty:
             return self._create_empty_analysis()
             
@@ -61,7 +61,9 @@ class MarketRegimeAnalyzer:
         sma_50 = data['Close'].rolling(window=50).mean()
         
         trend_direction = np.sign(sma_20.iloc[-1] - sma_50.iloc[-1])
-        price_change = (data['Close'].iloc[-1] - data['Close'].iloc[-self.lookback_period]) / data['Close'].iloc[-self.lookback_period]
+        price_change = ((data['Close'].iloc[-1] - 
+                        data['Close'].iloc[-self.lookback_period]) / 
+                       data['Close'].iloc[-self.lookback_period])
         
         return trend_direction * abs(price_change)
         
@@ -88,10 +90,11 @@ class MarketRegimeAnalyzer:
         
         for period in momentum_periods:
             if len(data) >= period:
-                returns = (data['Close'].iloc[-1] / data['Close'].iloc[-period]) - 1
+                returns = float(
+                    (data['Close'].iloc[-1] / data['Close'].iloc[-period]) - 1)
                 momentum_scores.append(returns)
                 
-        return np.mean(momentum_scores) if momentum_scores else 0.0
+        return float(np.mean(momentum_scores)) if momentum_scores else 0.0
         
     def _find_support_resistance(self, data: pd.DataFrame) -> List[float]:
         if len(data) < 20:
@@ -134,9 +137,12 @@ class MarketRegimeAnalyzer:
                     
         # Consider options flow
         if options_data is not None and not options_data.empty:
-            call_volume = options_data[options_data['type'] == 'call']['volume'].sum()
-            put_volume = options_data[options_data['type'] == 'put']['volume'].sum()
-            if abs(call_volume - put_volume) / (call_volume + put_volume) > 0.3:
+            call_volume = (options_data[options_data['type'] == 'call']
+                         ['volume'].sum())
+            put_volume = (options_data[options_data['type'] == 'put']
+                         ['volume'].sum())
+            if (abs(call_volume - put_volume) / 
+                (call_volume + put_volume) > 0.3):
                 if base_regime == 'ranging':
                     base_regime = 'trending'
                     
@@ -148,7 +154,7 @@ class MarketRegimeAnalyzer:
                             momentum: float,
                             market_tide: Optional[Dict],
                             options_data: Optional[pd.DataFrame]) -> float:
-        confidence_factors = []
+        confidence_factors: List[float] = []
         
         # Trend strength confidence
         confidence_factors.append(min(1.0, abs(trend_strength) / self.trend_threshold))
@@ -166,18 +172,20 @@ class MarketRegimeAnalyzer:
         
         # Market tide confidence
         if market_tide and 'score' in market_tide:
-            confidence_factors.append(abs(market_tide['score'] - 0.5) * 2)
+            confidence_factors.append(abs(float(market_tide['score']) - 0.5) * 2)
             
         # Options flow confidence
         if options_data is not None and not options_data.empty:
-            call_volume = options_data[options_data['type'] == 'call']['volume'].sum()
-            put_volume = options_data[options_data['type'] == 'put']['volume'].sum()
+            call_volume = float(options_data[options_data['type'] == 'call']
+                                       ['volume'].sum())
+            put_volume = float(options_data[options_data['type'] == 'put']
+                             ['volume'].sum())
             total_volume = call_volume + put_volume
             if total_volume > 0:
                 options_confidence = abs(call_volume - put_volume) / total_volume
                 confidence_factors.append(options_confidence)
                 
-        return np.mean(confidence_factors)
+        return float(np.mean(confidence_factors))
         
     def _create_empty_analysis(self) -> MarketRegimeAnalysis:
         return MarketRegimeAnalysis(

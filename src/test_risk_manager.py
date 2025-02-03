@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
-from typing import Dict
-from risk_manager import RiskManager
+from typing import Dict, Any, Optional
+from risk_manager import RiskManager, PositionConfig
 
 class TestRiskManager(unittest.TestCase):
     def setUp(self):
@@ -15,12 +15,13 @@ class TestRiskManager(unittest.TestCase):
             'hedge_ratio': 0.8
         }
         self.high_risk_greeks: Dict[str, float] = {
-            'gamma': 0.05,  # Very high gamma exposure
-            'vega': 0.4,    # High vega exposure
-            'theta': -0.2,  # High negative theta
-            'delta': 0.9,   # High delta exposure
-            'hedge_ratio': 0.2  # Poor hedge ratio
+            'gamma': 0.05,
+            'vega': 0.4,
+            'theta': -0.2,
+            'delta': 0.9,
+            'hedge_ratio': 0.2
         }
+        self.config = PositionConfig()
         
     def test_calculate_position_size(self):
         current_price = 500.0
@@ -32,6 +33,7 @@ class TestRiskManager(unittest.TestCase):
             current_price, volatility, market_regime
         )
         
+        self.assertIsInstance(shares, int)
         self.assertGreater(shares, 0)
         self.assertLess(metrics['position_size_pct'], 0.1)
         self.assertGreater(metrics['risk_amount'], 0)
@@ -41,6 +43,7 @@ class TestRiskManager(unittest.TestCase):
             current_price, volatility, market_regime, self.sample_greeks
         )
         
+        self.assertIsInstance(shares, int)
         self.assertGreater(shares, 0)
         self.assertIn('greek_adjustment', metrics)
         self.assertGreater(metrics['greek_adjustment']['adjustment_factor'], 0.5)
@@ -50,10 +53,9 @@ class TestRiskManager(unittest.TestCase):
             current_price, volatility, market_regime, self.high_risk_greeks
         )
         
+        self.assertIsInstance(shares, int)
         self.assertGreater(shares, 0)
         self.assertLess(metrics['greek_adjustment']['adjustment_factor'], 0.5)
-        
-        self.assertGreater(shares, 0)
         self.assertLess(metrics['position_size_pct'], 0.1)
         self.assertGreater(metrics['risk_amount'], 0)
         
@@ -103,9 +105,6 @@ class TestRiskManager(unittest.TestCase):
         
         self.assertFalse(is_valid)
         self.assertIn("Excessive Greeks exposure", message)
-        
-        self.assertTrue(is_valid)
-        self.assertEqual(message, "Trade validated")
         
         # Test invalid trade with poor risk-reward
         is_valid, message = self.risk_manager.validate_trade(
@@ -160,7 +159,8 @@ class TestRiskManager(unittest.TestCase):
         )
         
         self.assertIsNotNone(new_stop)
-        self.assertGreaterEqual(new_stop, current_stop)
+        if new_stop is not None:
+            self.assertGreater(new_stop, current_stop)
 
 if __name__ == '__main__':
     unittest.main()

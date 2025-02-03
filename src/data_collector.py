@@ -112,20 +112,35 @@ class DataCollector:
             print(f"Error fetching Alpha Vantage data: {e}")
             return pd.DataFrame()
     
-    def _get_yfinance_data(self):
+    def _get_yfinance_data(self) -> pd.DataFrame:
         """Fetch and process yfinance data"""
         try:
             df = self.fetcher.get_yfinance_data()
-            
+            if df is None or df.empty:
+                return pd.DataFrame()
+                
             # Add derivative features
             df['Price_Range'] = df['High'] - df['Low']
             df['Gap'] = df['Open'] - df['Close'].shift(1)
             df['Price_Position'] = (df['Close'] - df['Low']) / (df['High'] - df['Low'])
             df['Volume_Intensity'] = df['Volume'] * df['Daily_Return'].abs()
             df['Volume_Force'] = df['Volume'] * df['Daily_Return']
-            df['Volatility_Ratio'] = df['Rolling_Volatility'] / df['Rolling_Volatility'].rolling(100).mean()
+            df['Volatility_Ratio'] = (
+                df['Rolling_Volatility'] / df['Rolling_Volatility'].rolling(100).mean()
+            )
             
             return df
         except Exception as e:
             print(f"Error fetching yfinance data: {e}")
+            return pd.DataFrame()
+            
+    def collect_market_data(self, symbol: str) -> pd.DataFrame:
+        """Fetch market data for a given symbol"""
+        try:
+            df = self.fetcher.get_yfinance_data()
+            if df is None or df.empty:
+                return pd.DataFrame()
+            return df
+        except Exception as e:
+            print(f"Error fetching market data for {symbol}: {e}")
             return pd.DataFrame()

@@ -334,9 +334,11 @@ class PricePredictor:
         except Exception as e:
             raise ValueError(f"Error during prediction: {str(e)}")
         
-        dummy = np.zeros((ensemble_pred.shape[0], features.shape[1]))
-        dummy[:, 0] = ensemble_pred[:, 0]
-        return self.scaler.inverse_transform(dummy)[0][0]
+        # Convert ensemble prediction to proper shape
+        ensemble_pred_array = np.array(ensemble_pred).reshape(-1, 1)
+        dummy = np.zeros((ensemble_pred_array.shape[0], features.shape[1]))
+        dummy[:, 0] = ensemble_pred_array.flatten()
+        return float(self.scaler.inverse_transform(dummy)[0][0])
         
     def generate_price_ranges(self, current_price, prediction):
         volatility = 0.02  # 2% assumed volatility
@@ -395,29 +397,37 @@ class PricePredictor:
             rmse = np.sqrt(mean_squared_error(actuals, predictions))
             return {'mae': mae, 'mape': mape, 'rmse': rmse}
         
+        # Calculate metrics for each model's predictions
         metrics = {
-            'lstm': calculate_metrics(lstm_pred, y_test),
-            'gru': calculate_metrics(gru_pred, y_test),
-            'xgboost': calculate_metrics(xgb_pred, y_test),
-            'gradient_boosting': calculate_metrics(gb_pred, y_test),
+            'lstm': calculate_metrics(predictions['lstm'], y_test),
+            'gru': calculate_metrics(predictions['gru'], y_test),
+            'xgboost': calculate_metrics(predictions['xgb'], y_test),
+            'gradient_boosting': calculate_metrics(predictions['gb'], y_test),
             'ensemble': calculate_metrics(ensemble_pred, y_test)
         }
         
         # Create dummy arrays for inverse transformation
-        dummy = np.zeros((ensemble_pred.shape[0], features.shape[1]))
+        ensemble_pred_array = np.array(ensemble_pred)
+        if len(ensemble_pred_array.shape) == 1:
+            ensemble_pred_array = ensemble_pred_array.reshape(-1, 1)
+            
+        dummy = np.zeros((ensemble_pred_array.shape[0], features.shape[1]))
         
         # Transform predictions back to original scale
         def inverse_transform_preds(preds):
-            dummy[:, 0] = preds.flatten()
+            preds_array = np.array(preds)
+            if len(preds_array.shape) == 1:
+                preds_array = preds_array.reshape(-1, 1)
+            dummy[:, 0] = preds_array.flatten()
             return self.scaler.inverse_transform(dummy)[:, 0]
         
         return {
             'metrics': metrics,
             'predictions': {
-                'lstm': inverse_transform_preds(lstm_pred),
-                'gru': inverse_transform_preds(gru_pred),
-                'xgboost': inverse_transform_preds(xgb_pred),
-                'gradient_boosting': inverse_transform_preds(gb_pred),
+                'lstm': inverse_transform_preds(predictions['lstm']),
+                'gru': inverse_transform_preds(predictions['gru']),
+                'xgboost': inverse_transform_preds(predictions['xgb']),
+                'gradient_boosting': inverse_transform_preds(predictions['gb']),
                 'ensemble': inverse_transform_preds(ensemble_pred)
             },
             'actuals': inverse_transform_preds(y_test.reshape(-1, 1)),

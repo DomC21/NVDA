@@ -1,7 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional, Any
-import pandas as pd
 
 @dataclass
 class PositionConfig:
@@ -85,43 +84,50 @@ class RiskManager:
         atr = np.mean(tr[-period:])
         return float(atr)
         
-    def calculate_position_size(self, current_price: float, volatility: float, 
-                              market_regime: str, greeks_data: Optional[Dict[str, float]] = None) -> Tuple[float, Dict[str, float]]:
+    def calculate_position_size(
+            self,
+            current_price: float,
+            volatility: float,
+            market_regime: str,
+            greeks_data: Optional[Dict[str, float]] = None
+    ) -> Tuple[int, Dict[str, Any]]:
         vol_factor = 1.0 - (volatility / 100)
         regime_factors = {'trending': 1.0, 'ranging': 0.7, 'high_volatility': 0.5}
         regime_factor = regime_factors.get(market_regime, 0.5)
         
-        base_position = self.portfolio_value * self.config.max_position_size
-        adjusted_position = base_position * vol_factor * regime_factor
+        base_position = float(self.portfolio_value * self.config.max_position_size)
+        adjusted_position = float(base_position * vol_factor * regime_factor)
         
-        risk_amount = self.portfolio_value * self.config.max_risk_per_trade
-        max_shares = risk_amount / (current_price * volatility)
+        risk_amount = float(self.portfolio_value * self.config.max_risk_per_trade)
+        max_shares = float(risk_amount / (current_price * volatility))
         
-        final_position = min(adjusted_position, max_shares * current_price)
+        final_position = float(min(adjusted_position, max_shares * current_price))
         shares = int(final_position / current_price)
         
-        metrics = {
-            'position_value': shares * current_price,
-            'position_size_pct': (shares * current_price) / self.portfolio_value,
-            'risk_amount': risk_amount,
-            'volatility_factor': vol_factor,
-            'regime_factor': regime_factor
+        metrics: Dict[str, Any] = {
+            'position_value': float(shares * current_price),
+            'position_size_pct': float((shares * current_price) / self.portfolio_value),
+            'risk_amount': float(risk_amount),
+            'volatility_factor': float(vol_factor),
+            'regime_factor': float(regime_factor)
         }
         
         # Adjust position based on Greeks if available
         if greeks_data:
             adjusted_position, greek_metrics = self.adjust_for_greeks(final_position, greeks_data)
             shares = int(adjusted_position / current_price)
-            metrics.update({
-                'position_value': shares * current_price,
-                'position_size_pct': (shares * current_price) / self.portfolio_value,
-                'greek_adjustment': greek_metrics
-            })
+            metrics['position_value'] = float(shares * current_price)
+            metrics['position_size_pct'] = float((shares * current_price) / self.portfolio_value)
+            metrics['greek_adjustment'] = greek_metrics
             
         return shares, metrics
     
-    def calculate_stop_loss(self, entry_price: float, position_type: str, 
-                          atr: float) -> Tuple[float, float]:
+    def calculate_stop_loss(
+            self,
+            entry_price: float,
+            position_type: str,
+            atr: float
+    ) -> Tuple[float, float]:
         atr_stop = atr * self.config.atr_multiplier
         
         if position_type == 'long':
@@ -133,9 +139,15 @@ class RiskManager:
             
         return stop_loss, profit_target
     
-    def update_trailing_stop(self, position_type: str, current_price: float, 
-                           entry_price: float, highest_price: float, 
-                           lowest_price: float, current_stop: float) -> Optional[float]:
+    def update_trailing_stop(
+            self,
+            position_type: str,
+            current_price: float,
+            entry_price: float,
+            highest_price: float,
+            lowest_price: float,
+            current_stop: float
+    ) -> Optional[float]:
         if position_type == 'long':
             profit_pct = (current_price - entry_price) / entry_price
             if profit_pct >= self.config.trailing_stop_activation:
@@ -149,9 +161,14 @@ class RiskManager:
         
         return current_stop
     
-    def validate_trade(self, entry_price: float, stop_loss: float, 
-                      profit_target: float, position_type: str,
-                      greeks_data: Optional[Dict[str, float]] = None) -> Tuple[bool, str]:
+    def validate_trade(
+            self,
+            entry_price: float,
+            stop_loss: float,
+            profit_target: float,
+            position_type: str,
+            greeks_data: Optional[Dict[str, float]] = None
+    ) -> Tuple[bool, str]:
         if position_type == 'long':
             risk_pct = (entry_price - stop_loss) / entry_price
             reward_pct = (profit_target - entry_price) / entry_price
