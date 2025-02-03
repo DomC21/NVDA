@@ -20,11 +20,19 @@ class BacktestRunner:
         self.risk_manager = RiskManager(initial_capital)
         self.market_analyzer = MarketRegimeAnalyzer()
         self.stock_analyzer = StockAnalyzer()
+        self.model_trained = False
         
     def run_backtest(self, start_date, end_date):
         data = self.collector.collect_historical_data('NVDA', start_date, end_date)
         if data is None or len(data) < 50:
             return None
+            
+        # Train the model if not already trained
+        if not self.model_trained:
+            features = self.predictor._extract_features(data)
+            X, y = self.predictor._create_sequences(features)
+            self.predictor.train(X, y)
+            self.model_trained = True
             
         results = {
             'dates': [],
@@ -40,7 +48,7 @@ class BacktestRunner:
             current_date = data.index[i]
             window_data = data.iloc[i-window_size:i]
             
-            prediction = self.predictor.predict_next_price(window_data)
+            prediction = self.predictor.predict_next_day(window_data)
             actual_next_price = data.iloc[i+1]['Close']
             current_price = data.iloc[i]['Close']
             
