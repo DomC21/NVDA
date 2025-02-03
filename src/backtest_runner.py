@@ -29,10 +29,15 @@ class BacktestRunner:
             
         # Train the model if not already trained
         if not self.model_trained:
+            # Extract features and prepare data for training
             features = self.predictor._extract_features(data)
+            self.predictor.scaler.fit(features)
             X, y = self.predictor._create_sequences(features)
             self.predictor.train(X, y)
             self.model_trained = True
+            
+            # Store the feature columns for prediction
+            self.predictor._feature_columns = features.columns.tolist()
             
         results = {
             'dates': [],
@@ -52,7 +57,8 @@ class BacktestRunner:
             actual_next_price = data.iloc[i+1]['Close']
             current_price = data.iloc[i]['Close']
             
-            market_regime = self.market_analyzer.detect_regime(window_data)
+            # Simplified market regime and volatility calculation for initial testing
+            market_regime = 'normal'  # Default to normal regime for initial testing
             volatility = window_data['Close'].pct_change().std() * np.sqrt(252)
             
             if prediction > current_price * 1.01:  # Buy signal

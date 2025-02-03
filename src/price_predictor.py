@@ -19,6 +19,7 @@ class PricePredictor:
         self.model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.collector = DataCollector()
+        self._feature_columns = None
         
     def prepare_data(self):
         raw_data = self.collector.collect_all_data()
@@ -241,18 +242,24 @@ class PricePredictor:
         return history.history
         
     def predict_next_day(self, features):
-        if self.model is None:
+        if self.model is None or self._feature_columns is None:
             raise ValueError("Model not trained. Call train() first.")
         
         try:
-            last_sequence = features[-self.sequence_length:]
+            # Extract features using the same process as training
+            features_processed = self._extract_features(features)
+            
+            # Ensure columns match training data
+            features_processed = features_processed[self._feature_columns]
+            
+            last_sequence = features_processed[-self.sequence_length:]
             scaled_sequence = self.scaler.transform(last_sequence)
             sequence_array = np.array([scaled_sequence])
             
             prediction = self.model.predict(sequence_array, verbose=0)
             
             # Convert prediction to proper shape for inverse transform
-            dummy = np.zeros((prediction.shape[0], features.shape[1]))
+            dummy = np.zeros((prediction.shape[0], len(self.feature_columns)))
             dummy[:, 0] = prediction.flatten()
             return float(self.scaler.inverse_transform(dummy)[0][0])
         except Exception as e:
